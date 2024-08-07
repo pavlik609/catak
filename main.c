@@ -57,54 +57,85 @@ void CreateButton(Rectangle box,Color color,char * img_path,void (* callback)())
 
     button_index++;
 }
+
+void FrameChangedCallback(int nextframe){
+    memcpy(frames[current_frame].textures,textures,sizeof(frames[current_frame].textures)); 
+    frames[current_frame].textures_len = textures_len;
+    memcpy(textures,frames[(int)Clamp(current_frame+nextframe,0,65534)].textures,sizeof(frames[(int)Clamp(current_frame+nextframe,0,65534)].textures));
+    textures_len = frames[(int)Clamp(current_frame+nextframe,0,65534)].textures_len;
+}
+
 void Increment(int i){
     if (buttons[i].pressed == false || (buttons[i].frames_held >= 20 && buttons[i].frames_held % 2)){
+        FrameChangedCallback((int)Clamp(buttons[i].frames_held % 20,1,2));
         current_frame+= (int)Clamp(buttons[i].frames_held % 20,1,2);
     }
     buttons[i].frames_held++;
 }
 void Increment20(int i){
     if (buttons[i].pressed == false || (buttons[i].frames_held >= 20 && buttons[i].frames_held % 2)){
+        FrameChangedCallback(20);
         current_frame+= 20;
     }
     buttons[i].frames_held++;
 }
 void Subtract(int i){
     if (buttons[i].pressed == false || (buttons[i].frames_held >= 20 && buttons[i].frames_held % 2)){
+        FrameChangedCallback(-(int)Clamp(buttons[i].frames_held % 20,1,2));
         current_frame-= (int)Clamp(buttons[i].frames_held % 20,1,2);
     }
     buttons[i].frames_held++;
 }
 void Subtract20(int i){
     if (buttons[i].pressed == false || (buttons[i].frames_held >= 20 && buttons[i].frames_held % 2)){
+        FrameChangedCallback(-20);
         current_frame-= 20;
     }
     buttons[i].frames_held++;
 }
 
 void AddFunctionToItterator(void* func){
-    if (!holding){
+    if (holding == false){
         updfunc[updfunc_len++] = func;
         holding = true;
     }
 }
-
+void HoldGasterBlaster();
 void GasterBlasterHold(){
     if(!IsMouseButtonDown(1)){
-        if (GetMouseWheelMove() > 0){
-            textures[holding_texture].rotation ++;
+        float mwheel = GetMouseWheelMove();
+        if (mwheel != 0){
+            if(!IsKeyDown(KEY_LEFT_SHIFT)){mwheel*=5;}
+            if(IsKeyDown(KEY_LEFT_ALT)){mwheel=90;}
+            textures[holding_texture].rotation-=mwheel;
+            if(textures[holding_texture].rotation>=360.0f){
+                textures[holding_texture].rotation-=360;
+            }
+            if(textures[holding_texture].rotation<=-360.0f){
+                textures[holding_texture].rotation+=360;
+            }
         }
     }else{
         updfunc[--updfunc_len] = NULL;
         holding = false;
         textures[holding_texture] = EmptyXY;
     }
+    if(IsMouseButtonPressed(0)){
+        float saverot = textures[holding_texture].rotation;
+        holding_texture = -1;
+        updfunc[--updfunc_len] = NULL;
+        holding = false;
+        HoldGasterBlaster();
+        textures[holding_texture].rotation = saverot;
+    }
 }
 void HoldGasterBlaster(){
+    if (!holding){
+        textures[textures_len] = (TextureXY){LoadTexture("assets/gaster_blaster.png"),(Vector2){0,0},0};
+        holding_texture = textures_len;
+        textures_len++;
+    }
     AddFunctionToItterator(&GasterBlasterHold);
-    textures[textures_len] = (TextureXY){LoadTexture("assets/gaster_blaster.png"),(Vector2){0,0},0};
-    holding_texture = textures_len;
-    textures_len++;
 }
 bool TextureXYEquals(TextureXY t1,TextureXY t2){
     if (t1.texture.id != t2.texture.id)
@@ -152,8 +183,13 @@ int main(void)
             DrawRectangle(0,0,160,screenHeight,RAYWHITE);
             for(i=0;i<textures_len;i++){
                 TextureXY tx = textures[i];
-                if (!TextureXYEquals(tx,EmptyXY))
-                    {DrawTextureEx(tx.texture,tx.pos,tx.rotation,1,WHITE);} //TODO: implement scaling
+                if (!TextureXYEquals(tx,EmptyXY)){
+                    if (i == holding_texture){
+                        tx.pos = mouse_pos;
+                        textures[i] = tx;
+                    }
+                    DrawTexturePro(tx.texture,(Rectangle){0,0,tx.texture.width,tx.texture.height},(Rectangle){tx.pos.x,tx.pos.y,tx.texture.width,tx.texture.height},(Vector2){tx.texture.width/2,tx.texture.height/2},tx.rotation,WHITE);
+                } //TODO: implement scaling
             }
             for(i=0;i<button_index;i++){
                 //printf("%f %f ,rec : %f %f\n",mouse_pos.x,mouse_pos.y,buttons[i].box.x,buttons[i].box.width);
