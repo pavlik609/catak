@@ -27,14 +27,17 @@ typedef struct Button {
     int frames_held;
     void (* callback)();
 } Button;
-
-typedef struct TextureOBJ{
+typedef struct TextureOBJ TextureOBJ;
+ struct TextureOBJ{
     Texture texture;
     Texture texture_hit;
+    TextureOBJ * end_ptr;
+    Color tint;
     Vector2 pos;
+    unsigned char pickup_cooldown;
     char * id;
     float rotation;
-}TextureOBJ;
+};
 
 typedef struct Frame {
     char * attack;
@@ -63,6 +66,9 @@ static int holding_texture = -1;
 static int textures_len = 0;
 static int framesExport = 0;
 /*-INTS-*/
+
+
+/*-OTHER-*/
 static bool holding = false;
 Texture tex_in_hand;
 Texture missing_tex;
@@ -70,9 +76,13 @@ static Button buttons[99];
 void (*updfunc[99])();
 static TextureOBJ textures[1000];
 static Frame * frames;
-static const TextureOBJ EmptyXY;
-static const Texture EmptyTex;
+/*-OTHER-*/
 
+
+/*-EMPTY-*/
+static const TextureOBJ EmptyTexOBJ;
+static const Texture EmptyTex;
+/*-EMPTY-*/
 
 /*----GLOBALS----*/
 #pragma endregion GLOBALS
@@ -130,6 +140,7 @@ void AddFunctionToItterator(void* func){
 /* Button function for gasterblasters */
 void HoldGasterBlaster();
 
+/* Gaster blaster holding logic */
 void GasterBlasterHold(){
     if(!IsMouseButtonDown(1)){
         float mwheel = GetMouseWheelMove();
@@ -147,29 +158,57 @@ void GasterBlasterHold(){
     }else{
         updfunc[--updfunc_len] = NULL;
         holding = false;
-        textures[holding_texture] = EmptyXY;
+        if(textures[holding_texture].end_ptr != NULL){
+            textures[holding_texture+1] = EmptyTexOBJ;
+        }else{
+            textures[holding_texture-1] = EmptyTexOBJ;
+        }
+        textures[holding_texture] = EmptyTexOBJ;
         holding_texture = -1;
     }
     if(IsMouseButtonPressed(0)){
         float saverot = textures[holding_texture].rotation;
-        holding_texture = -1;
+        textures[holding_texture].pickup_cooldown = 1;
         updfunc[--updfunc_len] = NULL;
         holding = false;
-        FrameChangedCallback(0);
-        if (IsKeyDown(KEY_LEFT_SHIFT)){
+        if (IsKeyDown(KEY_LEFT_SHIFT) && textures[holding_texture].end_ptr != NULL){
             HoldGasterBlaster();
+            textures[holding_texture].rotation = saverot;
+        }else{
+            holding_texture = -1;
         }
-        textures[holding_texture].rotation = saverot;
+        FrameChangedCallback(0);
     }
 }
+
+/* Adds a gaster blaster to [ updfunc ] and initializes it */
 void HoldGasterBlaster(){
     if (!holding){
-        textures[textures_len] = (TextureOBJ){LoadTexture("assets/gaster_blaster.png"),LoadTexture("assets/gaster_blaster_hit.png"),(Vector2){0,0},"gb",0};
+        Texture blaster = LoadTexture("assets/gaster_blaster.png");
+        Texture frame = LoadTexture("assets/gaster_blaster_hit.png");
+        textures[textures_len+1] = (TextureOBJ){.texture = blaster,
+                                                .texture_hit = frame,
+                                                .end_ptr = NULL,
+                                                .pos = (Vector2){480,280},
+                                                .id = "gb",
+                                                .rotation = 90,
+                                                .tint = GREEN,
+                                                .pickup_cooldown = 0};
+        textures[textures_len] = (TextureOBJ){.texture = blaster,
+                                              .texture_hit = frame,
+                                              .end_ptr = &textures[textures_len+1],
+                                              .pos = (Vector2){480,240},
+                                              .id = "gb",
+                                              .rotation = 0,
+                                              .tint = WHITE,
+                                              .pickup_cooldown = 0};
         holding_texture = textures_len;
-        textures_len++;
+        textures_len+=2;
     }
     AddFunctionToItterator(&GasterBlasterHold);
 }
+
+/* If two textures equal */
 bool TextureEquals(Texture t1, Texture t2){
     if (t1.id != t2.id)
         {return false;}
@@ -184,6 +223,8 @@ bool TextureEquals(Texture t1, Texture t2){
 
     return true;
 }
+
+/* If two textureobjs equal*/
 bool TextureOBJEquals(TextureOBJ t1,TextureOBJ t2){
     if (!TextureEquals(t1.texture,t2.texture))
         {return false;}
@@ -195,12 +236,16 @@ bool TextureOBJEquals(TextureOBJ t1,TextureOBJ t2){
         {return false;}
     if (t1.pos.y != t2.pos.y)
         {return false;}
+    if (t1.end_ptr != t2.end_ptr)
+        {return false;}
     if (t1.rotation != t2.rotation)
         {return false;}
     if (t1.id != t2.id)
         {return false;}
     return true;
 }
+
+/* Exports the current workspace into a catak.lua parsable file */
 void Export(void){
     FILE *fptr;
 
@@ -210,7 +255,9 @@ void Export(void){
         Frame locframe = frames[i];
         for(int j=0;j<locframe.textures_len;j++){
             TextureOBJ txj = locframe.textures[j];
-            fprintf(fptr,"%i %s %i ENDLOC\n",i,txj.id,(int)txj.pos.x-160);
+            if(txj.end_ptr == NULL) {continue;}
+            /*-           fr id x- y- ex ey r- er-*/
+            fprintf(fptr,"%i %s %i %i %i %i %i %i\n",i,txj.id,(int)txj.pos.x-160,(int)txj.pos.y,(int)txj.end_ptr->pos.x-160,(int)txj.end_ptr->pos.y,(int)txj.rotation,(int)txj.end_ptr->rotation);
         }
     }
 
@@ -219,13 +266,13 @@ void Export(void){
     framesExport = 80;
 }
 
-
+/* Entrypoint */
 int main(void)
 {
     frames = malloc(60000*sizeof(Frame));
     memset(frames,0,sizeof(frames));
     int i,j,k,l,m; //itterators
-    const int screenWidth = 800;
+    const int screenWidth = 960;
     const int screenHeight = 480;
     Image icon = LoadImage("assets/icon_alt.png");
     Image icon_s = LoadImage("assets/icon_small.png");
@@ -233,7 +280,7 @@ int main(void)
     icons[0] = icon;
     icons[1] = icon_s;
     //missing_tex = LoadTexture("assets/empty.png");
-    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ WIP 0.2 ]");
+    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.1 ]");
     SetWindowIcons(icons,2);
     SetTargetFPS(60);           
     CreateButton((Rectangle){5,30,25,25},(Color){220,220,220,255},"assets/plus_tex.png",&ChangeFrame,"inc1");
@@ -252,41 +299,73 @@ int main(void)
         }
         BeginDrawing();
             ClearBackground((Color){220,220,220,220});
-            DrawRectangle(0,0,160,screenHeight,RAYWHITE);
-            DrawRectangle(5,90,150,200,LIGHTGRAY);
 
+
+            #pragma region TEXTURE DRAWING
             /*----TEXTURE-DRAWING----*/
             for(i=0;i<textures_len;i++){
                 TextureOBJ tx = textures[i];
                 Rectangle t_rect = (Rectangle){tx.pos.x,tx.pos.y,tx.texture.width,tx.texture.height};
                 Rectangle t_rect_coll = (Rectangle){tx.pos.x-tx.texture.width/2,tx.pos.y-tx.texture.height/2,tx.texture.width,tx.texture.height};
-                if(IsMouseButtonDown(1)){
-                    if (CheckCollisionRecs((Rectangle){mouse_pos.x,mouse_pos.y,1,1},t_rect_coll)){
-                        textures[i] = EmptyXY;
+                if (tx.end_ptr != NULL){
+                    DrawLineEx(tx.pos,tx.end_ptr->pos,3,RED);
+                }
+                if (CheckCollisionRecs((Rectangle){mouse_pos.x,mouse_pos.y,1,1},t_rect_coll)){
+                    if(IsMouseButtonPressed(0) && holding_texture == -1 && tx.pickup_cooldown <= 0){
+                        holding_texture = i;
+                        AddFunctionToItterator(&GasterBlasterHold);
+                    }
+                    if(IsMouseButtonDown(1)){
+                        tx = EmptyTexOBJ;
+                        textures[i] = EmptyTexOBJ;
+                        if (tx.end_ptr != NULL){
+                            textures[i+1] = EmptyTexOBJ;
+                        }else{
+                            textures[i-1] = EmptyTexOBJ;
+                        }
                         continue;
                     }
+                    if (tx.pickup_cooldown > 0) { tx.pickup_cooldown--;}
                 }
-                if (!TextureOBJEquals(tx,EmptyXY)){
+                if (!TextureOBJEquals(tx,EmptyTexOBJ)){
                     if (i == holding_texture){
                         tx.pos = mouse_pos;
                         textures[i] = tx;
                     }
-                    DrawTexturePro(tx.texture,(Rectangle){0,0,tx.texture.width,tx.texture.height},t_rect,(Vector2){tx.texture.width/2,tx.texture.height/2},tx.rotation,WHITE);
+                    DrawTexturePro(tx.texture,(Rectangle){0,0,tx.texture.width,tx.texture.height},t_rect,(Vector2){tx.texture.width/2,tx.texture.height/2},tx.rotation,tx.tint);
                     if (!TextureEquals(tx.texture_hit,EmptyTex)){
                         DrawTexturePro(tx.texture_hit,(Rectangle){0,0,tx.texture.width,tx.texture.height},t_rect,(Vector2){tx.texture.width/2,tx.texture.height/2},0,WHITE);
                     }
                 } //TODO: implement scaling
+                textures[i] = tx;
             }
             /*----TEXTURE-DRAWING----*/
+            #pragma endregion TEXTURE DRAWING
+
+            
+            #pragma region BUTTON UI
+            /*----UI----*/
+            DrawRectangle(0,0,160,screenHeight,RAYWHITE);
+            DrawRectangle(800,0,160,screenHeight,RAYWHITE);
+            DrawRectangle(5,90,150,200,LIGHTGRAY);
+            /*----UI----*/
+            #pragma endregion UI
 
 
+            #pragma region BUTTON LOGIC
             /*----BUTTON-LOGIC----*/
             for(i=0;i<button_index;i++){
-                DrawRectangleRec(buttons[i].box,buttons[i].color);
-                DrawTexture(buttons[i].texture,buttons[i].box.x,buttons[i].box.y,WHITE);
-                if (IsMouseButtonDown(0)){
+                Color color = buttons[i].color;
+                Color tint = WHITE;
+                if((buttons[i].box.x < mouse_pos.x && (buttons[i].box.x + buttons[i].box.width) > mouse_pos.x) && (buttons[i].box.y < mouse_pos.y && (buttons[i].box.y+ buttons[i].box.height) > mouse_pos.y)){
+                    color.r -= 25;
+                    color.g -= 25;
+                    color.b -= 25;
+                    tint.r -= 10;
+                    tint.g -= 10;
+                    tint.b -= 10;
+                    if (IsMouseButtonDown(0)){
                     
-                    if((buttons[i].box.x < mouse_pos.x && (buttons[i].box.x + buttons[i].box.width) > mouse_pos.x) && (buttons[i].box.y < mouse_pos.y && (buttons[i].box.y+ buttons[i].box.height) > mouse_pos.y)){
                         (buttons[i].callback)(i,buttons[i].tag);
                         buttons[i].pressed = true;
                     }
@@ -295,8 +374,12 @@ int main(void)
                     buttons[i].frames_held = 0;
 
                 }
+                DrawRectangleRec(buttons[i].box,color);
+                DrawTexture(buttons[i].texture,buttons[i].box.x,buttons[i].box.y,tint);
             }
             /*----BUTTON-LOGIC----*/
+            #pragma endregion BUTTON LOGIC
+
 
             current_frame = Clamp(current_frame,0,65534);
 
@@ -309,7 +392,7 @@ int main(void)
                 TextureOBJ temp_textures[1000];
                 int temp_textures_len = 0;
                 for(i=0;i<textures_len;i++){
-                    if (!TextureOBJEquals(textures[i],EmptyXY)){
+                    if (!TextureOBJEquals(textures[i],EmptyTexOBJ)){
                         temp_textures[temp_textures_len++] = textures[i];
                     }
                 }
