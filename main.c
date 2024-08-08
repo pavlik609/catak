@@ -1,8 +1,13 @@
+#pragma region INCLUDES
+/*----INCLUDES----*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <raylib/raylib.h>
 #include <raylib/raymath.h>
+#include <raylib/reasings.h>
+/*----INCLUDES----*/
+#pragma endregion INCLUDES
 
 #pragma region STRUCTS
 /*----STRUCTS----*/
@@ -23,18 +28,18 @@ typedef struct Button {
     void (* callback)();
 } Button;
 
-typedef struct TextureXY{
+typedef struct TextureOBJ{
     Texture texture;
     Texture texture_hit;
     Vector2 pos;
+    char * id;
     float rotation;
-}TextureXY;
+}TextureOBJ;
 
 typedef struct Frame {
-    uint_16 framenum;
     char * attack;
     void * args[5];
-    TextureXY textures[1000];
+    TextureOBJ textures[1000];
     int textures_len;
 }Frame;
 
@@ -48,21 +53,25 @@ typedef struct Frame {
 /*----GLOBALS----*/
 
 
-static Button buttons[99];
-static TextureXY textures[1000];
+/*-INTS-*/
 static int button_index = 0;
 static int current_frame = 0;
-static bool holding = false;
 static int updfunc_len = 0;
+static int largest_frame = 0;
+static int ticks = 0;
 static int holding_texture = -1;
 static int textures_len = 0;
-static int ticks = 0;
+static int framesExport = 0;
+/*-INTS-*/
+static bool holding = false;
 Texture tex_in_hand;
 Texture missing_tex;
+static Button buttons[99];
 void (*updfunc[99])();
-static const TextureXY EmptyXY;
-static const Texture EmptyTex;
+static TextureOBJ textures[1000];
 static Frame * frames;
+static const TextureOBJ EmptyXY;
+static const Texture EmptyTex;
 
 
 /*----GLOBALS----*/
@@ -84,10 +93,12 @@ void CreateButton(Rectangle box,Color color,char * img_path,void (* callback)(),
 
 /* Called in every function chaning the frame number */
 void FrameChangedCallback(int nextframe){
+    int real_nextframe = (int)Clamp(current_frame+nextframe,0,65534);
     memcpy(frames[current_frame].textures,textures,sizeof(frames[current_frame].textures)); 
     frames[current_frame].textures_len = textures_len;
-    memcpy(textures,frames[(int)Clamp(current_frame+nextframe,0,65534)].textures,sizeof(frames[(int)Clamp(current_frame+nextframe,0,65534)].textures));
-    textures_len = frames[(int)Clamp(current_frame+nextframe,0,65534)].textures_len;
+    memcpy(textures,frames[real_nextframe].textures,sizeof(frames[real_nextframe].textures));
+    textures_len = frames[real_nextframe].textures_len;
+    if (real_nextframe > largest_frame) {largest_frame = real_nextframe;}
 }
 
 /* Frame change ui */
@@ -123,7 +134,7 @@ void GasterBlasterHold(){
     if(!IsMouseButtonDown(1)){
         float mwheel = GetMouseWheelMove();
         if (mwheel != 0){
-            if(!IsKeyDown(KEY_LEFT_SHIFT)){mwheel*=5;}
+            if(!IsKeyDown(KEY_LEFT_CONTROL)){mwheel*=10;}
             if(IsKeyDown(KEY_LEFT_ALT)){mwheel=90;}
             textures[holding_texture].rotation-=mwheel;
             if(textures[holding_texture].rotation>=360.0f){
@@ -144,16 +155,16 @@ void GasterBlasterHold(){
         holding_texture = -1;
         updfunc[--updfunc_len] = NULL;
         holding = false;
-        if (IsKeyDown(KEY_LEFT_CONTROL)){
-            
-        HoldGasterBlaster();
+        FrameChangedCallback(0);
+        if (IsKeyDown(KEY_LEFT_SHIFT)){
+            HoldGasterBlaster();
         }
         textures[holding_texture].rotation = saverot;
     }
 }
 void HoldGasterBlaster(){
     if (!holding){
-        textures[textures_len] = (TextureXY){LoadTexture("assets/gaster_blaster.png"),LoadTexture("assets/gaster_blaster_hit.png"),(Vector2){0,0},0};
+        textures[textures_len] = (TextureOBJ){LoadTexture("assets/gaster_blaster.png"),LoadTexture("assets/gaster_blaster_hit.png"),(Vector2){0,0},"gb",0};
         holding_texture = textures_len;
         textures_len++;
     }
@@ -173,7 +184,7 @@ bool TextureEquals(Texture t1, Texture t2){
 
     return true;
 }
-bool TextureXYEquals(TextureXY t1,TextureXY t2){
+bool TextureOBJEquals(TextureOBJ t1,TextureOBJ t2){
     if (!TextureEquals(t1.texture,t2.texture))
         {return false;}
 
@@ -186,8 +197,28 @@ bool TextureXYEquals(TextureXY t1,TextureXY t2){
         {return false;}
     if (t1.rotation != t2.rotation)
         {return false;}
+    if (t1.id != t2.id)
+        {return false;}
     return true;
 }
+void Export(void){
+    FILE *fptr;
+
+    fptr = fopen("export.txt","w+");
+
+    for(int i=0;i<largest_frame+1;i++){
+        Frame locframe = frames[i];
+        for(int j=0;j<locframe.textures_len;j++){
+            TextureOBJ txj = locframe.textures[j];
+            fprintf(fptr,"%i %s %i ENDLOC\n",i,txj.id,(int)txj.pos.x-160);
+        }
+    }
+
+    fclose(fptr);
+
+    framesExport = 80;
+}
+
 
 int main(void)
 {
@@ -209,9 +240,10 @@ int main(void)
     CreateButton((Rectangle){5,60,65,25},(Color){220,220,220,255},"assets/plus_20_tex.png",&ChangeFrame,"inc20");
     CreateButton((Rectangle){130,30,25,25},(Color){220,220,220,255},"assets/sub_tex.png",&ChangeFrame,"sub1");
     CreateButton((Rectangle){90,60,65,25},(Color){220,220,220,255},"assets/sub_20_tex.png",&ChangeFrame,"sub20");
-    CreateButton((Rectangle){90,150,65,25},(Color){220,220,220,255},"assets/empty.png",&HoldGasterBlaster,"holdgb");
 
+    CreateButton((Rectangle){15,100,72,72},GRAY,"assets/gb_ui.png",&HoldGasterBlaster,"holdgb");
 
+    CreateButton((Rectangle){10,420,140,50},(Color){220,220,220,255},"assets/export.png",&Export,"export");
     while (!WindowShouldClose())
     {
         Vector2 mouse_pos = GetMousePosition();
@@ -221,11 +253,11 @@ int main(void)
         BeginDrawing();
             ClearBackground((Color){220,220,220,220});
             DrawRectangle(0,0,160,screenHeight,RAYWHITE);
-
+            DrawRectangle(5,90,150,200,LIGHTGRAY);
 
             /*----TEXTURE-DRAWING----*/
             for(i=0;i<textures_len;i++){
-                TextureXY tx = textures[i];
+                TextureOBJ tx = textures[i];
                 Rectangle t_rect = (Rectangle){tx.pos.x,tx.pos.y,tx.texture.width,tx.texture.height};
                 Rectangle t_rect_coll = (Rectangle){tx.pos.x-tx.texture.width/2,tx.pos.y-tx.texture.height/2,tx.texture.width,tx.texture.height};
                 if(IsMouseButtonDown(1)){
@@ -234,7 +266,7 @@ int main(void)
                         continue;
                     }
                 }
-                if (!TextureXYEquals(tx,EmptyXY)){
+                if (!TextureOBJEquals(tx,EmptyXY)){
                     if (i == holding_texture){
                         tx.pos = mouse_pos;
                         textures[i] = tx;
@@ -270,12 +302,14 @@ int main(void)
 
             DrawText(TextFormat("Current frame",current_frame), 5,5, 20, GRAY);
             DrawText(TextFormat("%i",current_frame), 35, 32, 20, GRAY);
-
+            DrawRectangle(0,447,13+MeasureText("Exported!",20),33,(Color){130,130,130,EaseExpoOut(framesExport,0,255,80)});
+            DrawRectangle(0,450,10+MeasureText("Exported!",20),30,(Color){245,245,245,EaseExpoOut(framesExport,0,255,80)});
+            DrawText("Exported!",5,455,20,(Color){80,80,80,EaseExpoOut(framesExport,0,255,80)});
             if((ticks % 10) == 0){
-                TextureXY temp_textures[1000];
+                TextureOBJ temp_textures[1000];
                 int temp_textures_len = 0;
                 for(i=0;i<textures_len;i++){
-                    if (!TextureXYEquals(textures[i],EmptyXY)){
+                    if (!TextureOBJEquals(textures[i],EmptyXY)){
                         temp_textures[temp_textures_len++] = textures[i];
                     }
                 }
@@ -283,6 +317,8 @@ int main(void)
                 textures_len = temp_textures_len;
             }
         EndDrawing();
+        framesExport--;
+        framesExport = (int)Clamp(framesExport,0,80);
         ticks++;
     }
     free(frames);
