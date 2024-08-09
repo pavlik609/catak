@@ -23,6 +23,7 @@ typedef struct Button {
     Color color;
     Texture texture;
     char * tag;
+    char * texture_tag;
     bool pressed;
     int frames_held;
     void (* callback)();
@@ -32,10 +33,12 @@ typedef struct TextureOBJ TextureOBJ;
     Texture texture;
     Texture texture_hit;
     TextureOBJ * end_ptr;
+    TextureOBJ * start_ptr;
     Color tint;
     Vector2 pos;
     unsigned char pickup_cooldown;
     char * id;
+    int index;
     float rotation;
 };
 
@@ -63,12 +66,14 @@ static int updfunc_len = 0;
 static int largest_frame = 0;
 static int ticks = 0;
 static int holding_texture = -1;
+static int selected_texture = -1;
 static int textures_len = 0;
 static int framesExport = 0;
 /*-INTS-*/
 
 
 /*-OTHER-*/
+static float mwheel;
 static bool holding = false;
 Texture tex_in_hand;
 Texture missing_tex;
@@ -89,13 +94,14 @@ static const Texture EmptyTex;
 
 
 /* Creates a button */
-void CreateButton(Rectangle box,Color color,char * img_path,void (* callback)(),char * tag){
+void CreateButton(Rectangle box,Color color,char * img_path,void (* callback)(),char * tag,char * texture_tag){
     buttons[button_index].box = box;
     buttons[button_index].color = color;
     buttons[button_index].callback = callback;
     buttons[button_index].pressed = false;
     buttons[button_index].frames_held = 0;
     buttons[button_index].tag = tag;
+    buttons[button_index].texture_tag = texture_tag;
     buttons[button_index].texture = (img_path != NULL) ? LoadTexture(img_path) : missing_tex;
 
     button_index++;
@@ -129,6 +135,66 @@ void ChangeFrame(int i,char * context_tag){
     buttons[i].frames_held++;
 }
 
+/* Change a property of the last selected bullet */
+void ChangeProperty(int i,char * context_tag){
+    if ((buttons[i].pressed == false || (buttons[i].frames_held >= 20 && buttons[i].frames_held % 2 )) && selected_texture != -1){
+        if (textures[selected_texture].end_ptr == NULL){
+            if(context_tag == "x_orig_add"){
+                textures[selected_texture].start_ptr->pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "x_orig_sub"){
+                textures[selected_texture].start_ptr->pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "x_end_add"){
+                textures[selected_texture].pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "x_end_sub"){
+                textures[selected_texture].pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_orig_add"){
+                textures[selected_texture].start_ptr->pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_orig_sub"){
+                textures[selected_texture].start_ptr->pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_end_add"){
+                textures[selected_texture].pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_end_sub"){
+                textures[selected_texture].pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_orig_add"){
+                textures[selected_texture].start_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_orig_sub"){
+                textures[selected_texture].start_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_end_add"){
+                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_end_sub"){
+                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }
+        }else{
+            if(context_tag == "x_orig_add"){
+                textures[selected_texture].pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "x_orig_sub"){
+                textures[selected_texture].pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "x_end_add"){
+                textures[selected_texture].end_ptr->pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "x_end_sub"){
+                textures[selected_texture].end_ptr->pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_orig_add"){
+                textures[selected_texture].pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_orig_sub"){
+                textures[selected_texture].pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_end_add"){
+                textures[selected_texture].end_ptr->pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "y_end_sub"){
+                textures[selected_texture].end_ptr->pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_orig_add"){
+                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_orig_sub"){
+                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_end_add"){
+                textures[selected_texture].end_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }else if(context_tag == "rot_end_sub"){
+                textures[selected_texture].end_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
+            }
+        }
+    }
+    buttons[i].frames_held++;
+}
+
 
 /* Adds function [ func ] to the [ updfunc ] function array */
 void AddFunctionToItterator(void* func){
@@ -140,37 +206,46 @@ void AddFunctionToItterator(void* func){
 /* Button function for gasterblasters */
 void HoldGasterBlaster();
 
+/* Sprite rotation using the mousewheel */
+void RotateSpriteMouse(int i){
+    if (mwheel != 0){
+        if(!IsKeyDown(KEY_LEFT_CONTROL)){mwheel*=10;}
+        if(IsKeyDown(KEY_LEFT_ALT)){mwheel=90;}
+        textures[i].rotation-=mwheel;
+        if(textures[i].rotation>=360.0f){
+            textures[i].rotation-=360;
+        }
+        if(textures[i].rotation<=-360.0f){
+            textures[i].rotation+=360;
+        }
+        if(textures[i].rotation<0.0f){
+            textures[i].rotation+=360;
+        }
+    }
+}
+
 /* Gaster blaster holding logic */
 void GasterBlasterHold(){
     if(!IsMouseButtonDown(1)){
-        float mwheel = GetMouseWheelMove();
-        if (mwheel != 0){
-            if(!IsKeyDown(KEY_LEFT_CONTROL)){mwheel*=10;}
-            if(IsKeyDown(KEY_LEFT_ALT)){mwheel=90;}
-            textures[holding_texture].rotation-=mwheel;
-            if(textures[holding_texture].rotation>=360.0f){
-                textures[holding_texture].rotation-=360;
-            }
-            if(textures[holding_texture].rotation<=-360.0f){
-                textures[holding_texture].rotation+=360;
-            }
-        }
+        RotateSpriteMouse(holding_texture);
     }else{
         updfunc[--updfunc_len] = NULL;
         holding = false;
         if(textures[holding_texture].end_ptr != NULL){
-            textures[holding_texture+1] = EmptyTexOBJ;
+            *(textures[holding_texture].end_ptr) = EmptyTexOBJ;
         }else{
-            textures[holding_texture-1] = EmptyTexOBJ;
+            *(textures[holding_texture].start_ptr) = EmptyTexOBJ;
         }
         textures[holding_texture] = EmptyTexOBJ;
         holding_texture = -1;
+        selected_texture = -1;
     }
-    if(IsMouseButtonPressed(0)){
+    if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_SPACE)){
         float saverot = textures[holding_texture].rotation;
         textures[holding_texture].pickup_cooldown = 1;
         updfunc[--updfunc_len] = NULL;
         holding = false;
+        selected_texture = holding_texture;
         if (IsKeyDown(KEY_LEFT_SHIFT) && textures[holding_texture].end_ptr != NULL){
             HoldGasterBlaster();
             textures[holding_texture].rotation = saverot;
@@ -189,20 +264,25 @@ void HoldGasterBlaster(){
         textures[textures_len+1] = (TextureOBJ){.texture = blaster,
                                                 .texture_hit = frame,
                                                 .end_ptr = NULL,
+                                                .start_ptr = &textures[textures_len],
                                                 .pos = (Vector2){480,280},
                                                 .id = "gb",
                                                 .rotation = 90,
                                                 .tint = GREEN,
-                                                .pickup_cooldown = 0};
+                                                .pickup_cooldown = 0,
+                                                .index = textures_len+1};
         textures[textures_len] = (TextureOBJ){.texture = blaster,
                                               .texture_hit = frame,
                                               .end_ptr = &textures[textures_len+1],
+                                              .start_ptr = NULL,
                                               .pos = (Vector2){480,240},
                                               .id = "gb",
                                               .rotation = 0,
                                               .tint = WHITE,
-                                              .pickup_cooldown = 0};
+                                              .pickup_cooldown = 0,
+                                              .index = textures_len};
         holding_texture = textures_len;
+        selected_texture = textures_len;
         textures_len+=2;
     }
     AddFunctionToItterator(&GasterBlasterHold);
@@ -242,6 +322,8 @@ bool TextureOBJEquals(TextureOBJ t1,TextureOBJ t2){
         {return false;}
     if (t1.id != t2.id)
         {return false;}
+    if (t1.index != t2.index)
+        {return false;}
     return true;
 }
 
@@ -265,6 +347,23 @@ void Export(void){
 
     framesExport = 80;
 }
+/* Prints a warning */
+void UnimplementedButtonFunctionality(int i){
+    printf("UNIMPLEMENTED BUTTON FUNCTIONALITY '%s'\n", buttons[i].tag);
+}
+/* Adds up (and clamps) two color values */
+Color AddColors(Color c1, Color c2){
+    Color returnCol;
+    return (Color){.r = Clamp(c1.r+c2.r,0,255),.g = Clamp(c1.g+c2.g,0,255),.b = Clamp(c1.b+c2.b,0,255),.a = Clamp(c1.a+c2.a,0,255)};
+}
+/* Comares two color values */
+bool ColorsEqual(Color c1, Color c2){
+    if (c1.r != c2.r ){ return false; }
+    if (c1.g != c2.g ){ return false; }
+    if (c1.b != c2.b ){ return false; }
+    if (c1.a != c2.a ){ return false; }
+    return true;
+}
 
 /* Entrypoint */
 int main(void)
@@ -280,19 +379,37 @@ int main(void)
     icons[0] = icon;
     icons[1] = icon_s;
     //missing_tex = LoadTexture("assets/empty.png");
-    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.1 ]");
+    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.2 ]");
     SetWindowIcons(icons,2);
     SetTargetFPS(60);           
-    CreateButton((Rectangle){5,30,25,25},(Color){220,220,220,255},"assets/plus_tex.png",&ChangeFrame,"inc1");
-    CreateButton((Rectangle){5,60,65,25},(Color){220,220,220,255},"assets/plus_20_tex.png",&ChangeFrame,"inc20");
-    CreateButton((Rectangle){130,30,25,25},(Color){220,220,220,255},"assets/sub_tex.png",&ChangeFrame,"sub1");
-    CreateButton((Rectangle){90,60,65,25},(Color){220,220,220,255},"assets/sub_20_tex.png",&ChangeFrame,"sub20");
+    /*--WALL-OF-BUTTONS--*/
+    CreateButton((Rectangle){5,30,25,25},(Color){220,220,220,255},"assets/plus_tex.png",&ChangeFrame,"inc1","");
+    CreateButton((Rectangle){5,60,65,25},(Color){220,220,220,255},"assets/plus_20_tex.png",&ChangeFrame,"inc20","");
+    CreateButton((Rectangle){130,30,25,25},(Color){220,220,220,255},"assets/sub_tex.png",&ChangeFrame,"sub1","");
+    CreateButton((Rectangle){90,60,65,25},(Color){220,220,220,255},"assets/sub_20_tex.png",&ChangeFrame,"sub20","");
 
-    CreateButton((Rectangle){15,100,72,72},GRAY,"assets/gb_ui.png",&HoldGasterBlaster,"holdgb");
+    CreateButton((Rectangle){15,100,72,72},GRAY,"assets/gb_ui.png",&HoldGasterBlaster,"holdgb","");
 
-    CreateButton((Rectangle){10,420,140,50},(Color){220,220,220,255},"assets/export.png",&Export,"export");
+    CreateButton((Rectangle){10,360,140,50},(Color){220,220,220,255},"assets/load.png",&UnimplementedButtonFunctionality,"load","");
+    CreateButton((Rectangle){10,420,140,50},(Color){220,220,220,255},"assets/save.png",&Export,"export","");
+
+    CreateButton((Rectangle){855,20,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"x_orig_add","property_arrowup");
+    CreateButton((Rectangle){855,38,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"x_orig_sub","property_arrowdown");
+    CreateButton((Rectangle){930,20,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"y_orig_add","property_arrowup");
+    CreateButton((Rectangle){930,38,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"y_orig_sub","property_arrowdown");
+    CreateButton((Rectangle){855,100,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"rot_orig_add","property_arrowup");
+    CreateButton((Rectangle){855,118,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"rot_orig_sub","property_arrowdown");
+
+    CreateButton((Rectangle){855,60,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"x_end_add","property_arrowup");
+    CreateButton((Rectangle){855,78,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"x_end_sub","property_arrowdown");
+    CreateButton((Rectangle){930,60,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"y_end_add","property_arrowup");
+    CreateButton((Rectangle){930,78,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"y_end_sub","property_arrowdown");
+    CreateButton((Rectangle){930,100,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"rot_end_add","property_arrowup");
+    CreateButton((Rectangle){930,118,20,15},(Color){220,220,220,255},"assets/arrow_ui.png",&ChangeProperty,"rot_end_sub","property_arrowdown");
+    /*--WALL-OF-BUTTONS--*/
     while (!WindowShouldClose())
-    {
+    {  
+        mwheel = GetMouseWheelMove();
         Vector2 mouse_pos = GetMousePosition();
         for (i=0;i<updfunc_len;i++){
             (updfunc[i])();
@@ -301,53 +418,130 @@ int main(void)
             ClearBackground((Color){220,220,220,220});
 
 
-            #pragma region TEXTURE DRAWING
-            /*----TEXTURE-DRAWING----*/
+            #pragma region TEXTURE LOGIC
+            /*----TEXTURE-LOGIC----*/
             for(i=0;i<textures_len;i++){
                 TextureOBJ tx = textures[i];
                 Rectangle t_rect = (Rectangle){tx.pos.x,tx.pos.y,tx.texture.width,tx.texture.height};
                 Rectangle t_rect_coll = (Rectangle){tx.pos.x-tx.texture.width/2,tx.pos.y-tx.texture.height/2,tx.texture.width,tx.texture.height};
-                if (tx.end_ptr != NULL){
-                    DrawLineEx(tx.pos,tx.end_ptr->pos,3,RED);
+                Vector2 line_p1;
+                Vector2 line_p2;
+                TextureOBJ * other_ptr;
+                Color line_col;
+                if(IsMouseButtonPressed(1) && selected_texture != -1){
+                    selected_texture = -1;
+                }
+                if (i == selected_texture && holding_texture == -1){
+                    RotateSpriteMouse(i);
+                    tx = textures[i];
                 }
                 if (CheckCollisionRecs((Rectangle){mouse_pos.x,mouse_pos.y,1,1},t_rect_coll)){
                     if(IsMouseButtonPressed(0) && holding_texture == -1 && tx.pickup_cooldown <= 0){
                         holding_texture = i;
+                        selected_texture = i;
                         AddFunctionToItterator(&GasterBlasterHold);
                     }
                     if(IsMouseButtonDown(1)){
-                        tx = EmptyTexOBJ;
-                        textures[i] = EmptyTexOBJ;
+                        selected_texture = -1;
                         if (tx.end_ptr != NULL){
-                            textures[i+1] = EmptyTexOBJ;
+                            *(textures[i].end_ptr) = EmptyTexOBJ;
                         }else{
-                            textures[i-1] = EmptyTexOBJ;
+                            printf("%f",textures[i].start_ptr->pos.x);
+                            *(textures[i].start_ptr) = EmptyTexOBJ;
                         }
+                        textures[i] = EmptyTexOBJ;
+                        tx = textures[i];
                         continue;
+                    }
+                    if(IsMouseButtonPressed(2)){
+                        selected_texture = i;
                     }
                     if (tx.pickup_cooldown > 0) { tx.pickup_cooldown--;}
                 }
                 if (!TextureOBJEquals(tx,EmptyTexOBJ)){
+                    if (tx.end_ptr != NULL){
+                        other_ptr = tx.end_ptr;
+                        line_p1 = tx.pos;
+                        line_p2 = tx.end_ptr->pos;
+                    }else{
+                        line_p2 = tx.pos;
+                        line_p1 = tx.start_ptr->pos;
+                        other_ptr = tx.start_ptr;
+                    }
+                    if ((i == selected_texture || other_ptr->index == selected_texture)){
+                        line_col = BLUE;
+                    }else{
+                        line_col = RED;
+                    }
                     if (i == holding_texture){
                         tx.pos = mouse_pos;
                         textures[i] = tx;
                     }
-                    DrawTexturePro(tx.texture,(Rectangle){0,0,tx.texture.width,tx.texture.height},t_rect,(Vector2){tx.texture.width/2,tx.texture.height/2},tx.rotation,tx.tint);
+                    if(textures[i].end_ptr != NULL)
+                        DrawLineEx(line_p1,line_p2,3,line_col);
+                    Color temptint = tx.tint;
+                    if (i == selected_texture){
+                        temptint = AddColors(tx.tint, (Color){170,170,238,255});
+                        if (ColorsEqual(temptint,WHITE)){
+                            temptint = (Color){170,170,238,255};
+                        }
+                    }
+                    DrawTexturePro(tx.texture,(Rectangle){0,0,tx.texture.width,tx.texture.height},t_rect,(Vector2){tx.texture.width/2,tx.texture.height/2},tx.rotation,temptint);
                     if (!TextureEquals(tx.texture_hit,EmptyTex)){
                         DrawTexturePro(tx.texture_hit,(Rectangle){0,0,tx.texture.width,tx.texture.height},t_rect,(Vector2){tx.texture.width/2,tx.texture.height/2},0,WHITE);
                     }
                 } //TODO: implement scaling
                 textures[i] = tx;
             }
-            /*----TEXTURE-DRAWING----*/
-            #pragma endregion TEXTURE DRAWING
+            /*----TEXTURE-LOGIC----*/
+            #pragma endregion TEXTURE LOGIC
 
             
-            #pragma region BUTTON UI
+            #pragma region UI
             /*----UI----*/
             DrawRectangle(0,0,160,screenHeight,RAYWHITE);
             DrawRectangle(800,0,160,screenHeight,RAYWHITE);
             DrawRectangle(5,90,150,200,LIGHTGRAY);
+            
+            if(selected_texture != -1){
+                DrawText("GASTER BLASTER",810,2,15,GRAY);
+                DrawLineEx((Vector2){880,15},(Vector2){880,470},1,GRAY);
+                TextureOBJ orig;
+                TextureOBJ end;
+                if (textures[selected_texture].end_ptr != NULL ){
+                    orig = textures[selected_texture];
+                    end = *textures[selected_texture].end_ptr;
+                }else{
+                    orig = *textures[selected_texture].start_ptr;
+                    end = textures[selected_texture];
+                }
+                /*LINES*/
+                DrawLineEx((Vector2){805,15},(Vector2){956,15},1,GRAY);
+                DrawLineEx((Vector2){805,55},(Vector2){956,55},1,GRAY);
+                DrawLineEx((Vector2){805,95},(Vector2){956,95},1,GRAY);
+                DrawLineEx((Vector2){805,135},(Vector2){956,135},1,GRAY);
+                /*LINES*/
+                DrawText("START",810,26,12,GRAY);
+                DrawText("START",884,26,12,GRAY);
+                DrawText("START",810,106,12,GRAY);
+                DrawText("X",810,16,12,GRAY);
+                DrawText("Y",884,16,12,GRAY);
+                DrawText("ROT",810,96,12,GRAY);
+                DrawText(TextFormat("\n%i",(int)orig.pos.x-160),810,20,20,GRAY);
+                DrawText(TextFormat("\n%i",(int)orig.pos.y),884,20,20,GRAY);
+                DrawText(TextFormat("\n%i",(int)orig.rotation),810,100,20,GRAY);
+                
+                DrawText("END",810,66,12,GRAY);
+                DrawText("END",884,66,12,GRAY);
+                DrawText("END",884,106,12,GRAY);
+                DrawText("X",810,56,12,GRAY);
+                DrawText("Y",884,56,12,GRAY);
+                DrawText("ROT",884,96,12,GRAY);
+                DrawText(TextFormat("\n%i",(int)end.pos.x-160),810,60,20,GRAY);
+                DrawText(TextFormat("\n%i",(int)end.pos.y),884,60,20,GRAY);
+                DrawText(TextFormat("\n%i",(int)end.rotation),884,100,20,GRAY);
+                
+            }
             /*----UI----*/
             #pragma endregion UI
 
@@ -357,7 +551,14 @@ int main(void)
             for(i=0;i<button_index;i++){
                 Color color = buttons[i].color;
                 Color tint = WHITE;
-                if((buttons[i].box.x < mouse_pos.x && (buttons[i].box.x + buttons[i].box.width) > mouse_pos.x) && (buttons[i].box.y < mouse_pos.y && (buttons[i].box.y+ buttons[i].box.height) > mouse_pos.y)){
+                bool active = true;
+                if((buttons[i].texture_tag == "property_arrowdown" || buttons[i].texture_tag == "property_arrowup") && selected_texture == -1){
+                    color.a = 0;
+                    tint.a = 0;
+                    active = false;
+                    buttons[i].frames_held = 0;
+                }
+                if(((buttons[i].box.x < mouse_pos.x && (buttons[i].box.x + buttons[i].box.width) > mouse_pos.x) && (buttons[i].box.y < mouse_pos.y && (buttons[i].box.y+ buttons[i].box.height) > mouse_pos.y)) && active == true){
                     color.r -= 25;
                     color.g -= 25;
                     color.b -= 25;
@@ -368,18 +569,26 @@ int main(void)
                     
                         (buttons[i].callback)(i,buttons[i].tag);
                         buttons[i].pressed = true;
+                    }else{
+                        buttons[i].pressed = false;
+                        buttons[i].frames_held = 0;
                     }
                 }else{
                     buttons[i].pressed = false;
                     buttons[i].frames_held = 0;
 
                 }
+                float rot = 0;
+                Vector2 origin = {0,0};
+                if(buttons[i].texture_tag == "property_arrowdown") {rot = 180; origin = (Vector2){buttons[i].box.width,buttons[i].box.height};}
+                Rectangle src = buttons[i].box;
+                src.x = 0;
+                src.y = 0;
                 DrawRectangleRec(buttons[i].box,color);
-                DrawTexture(buttons[i].texture,buttons[i].box.x,buttons[i].box.y,tint);
+                DrawTexturePro(buttons[i].texture,src,buttons[i].box,origin,rot,tint);
             }
             /*----BUTTON-LOGIC----*/
             #pragma endregion BUTTON LOGIC
-
 
             current_frame = Clamp(current_frame,0,65534);
 
@@ -390,13 +599,29 @@ int main(void)
             DrawText("Exported!",5,455,20,(Color){80,80,80,EaseExpoOut(framesExport,0,255,80)});
             if((ticks % 10) == 0){
                 TextureOBJ temp_textures[1000];
+                //memset(temp_textures,0,sizeof(temp_textures));
                 int temp_textures_len = 0;
+                int total_shifted = 0;
                 for(i=0;i<textures_len;i++){
+                    TextureOBJ * curr_ptr;
+                    if (textures[i].start_ptr != NULL){
+                        curr_ptr = textures[i].start_ptr;
+                    }else{
+                        curr_ptr = textures[i].end_ptr;
+                    }
+                    if (TextureOBJEquals(textures[i],EmptyTexOBJ)){
+                        total_shifted++;
+                        
+                    }
                     if (!TextureOBJEquals(textures[i],EmptyTexOBJ)){
-                        temp_textures[temp_textures_len++] = textures[i];
+                        printf(" [ %i %i ->%i ]",TextureOBJEquals(textures[i],EmptyTexOBJ),textures[i].index,curr_ptr->index);
+                        temp_textures[temp_textures_len] = textures[i];
+                        temp_textures[temp_textures_len].index = temp_textures_len;
+                        temp_textures_len++;
                     }
                 }
-                memcpy(textures,temp_textures,sizeof(textures));
+                printf("\n");
+                memcpy(&textures,&temp_textures,sizeof(textures));
                 textures_len = temp_textures_len;
             }
         EndDrawing();
