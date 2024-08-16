@@ -6,13 +6,17 @@
 #include <raylib/raylib.h>
 #include <raylib/raymath.h>
 #include <raylib/reasings.h>
+#include "includes/TextureOBJ.h"
 /*----INCLUDES----*/
 #pragma endregion INCLUDES
 
+
+extern int TEXTURE_OBJ_EQUALS();
+extern TextureOBJ * GET_START();
+extern TextureOBJ * GET_END();
 #pragma region STRUCTS
+
 /*----STRUCTS----*/
-
-
 typedef union uint_16{
     unsigned char half;
     unsigned char half2;
@@ -25,24 +29,13 @@ typedef struct Button {
     char * tag;
     char * texture_tag;
     bool pressed;
+    bool updfunc_firstfram;
+    bool has_added_updfunc;
+    bool * override_visibility;
     int frames_held;
-    int * callback_values[10];
+    float * callback_values[10];
     void (* callback)();
 } Button;
-typedef struct TextureOBJ TextureOBJ;
- struct TextureOBJ{
-    Texture texture;
-    Texture texture_hit;
-    TextureOBJ * end_ptr;
-    TextureOBJ * start_ptr;
-    Color tint;
-    Vector2 pos;
-    unsigned char pickup_cooldown;
-    char * id;
-    int index;
-    float rotation;
-};
-
 typedef struct Frame {
     char * attack;
     void * args[5];
@@ -53,6 +46,58 @@ typedef struct Frame {
 
 /*----STRUCTS----*/
 #pragma endregion STRUCTS
+
+#pragma region GLOBALS
+/*----GLOBALS----*/
+
+
+/*-INTS-*/
+static int button_index = 0;
+static int current_frame = 0;
+static int updfunc_len = 0;
+static int largest_frame = 0;
+static int ticks = 0;
+static int glob_pickup_cd = 0;
+static int holding_texture = -1;
+static int selected_texture = -1;
+static int textures_len = 0;
+static int framesExport = 0;
+static int last_button = -1;
+
+int num_f_i_len;
+/*-INTS-*/
+
+/*-BOOLS-*/
+static bool holding = false;
+static bool canShift = true;
+static bool is_selected = false;
+/*-BOOLS-*/
+
+/*-TEXTURES-*/
+Texture tex_in_hand;
+Texture missing_tex;
+Texture gaster_blaster_tex;
+Texture gaster_blaster_box_tex;
+Texture empty_tex;
+/*-TEXTURES-*/
+
+/*-OTHER-*/
+static float mwheel;
+char num_field_inp[10];
+static Button buttons[99];
+void (*updfunc[99])();
+static TextureOBJ textures[1000];
+static Frame * frames;
+/*-OTHER-*/
+
+
+/*-EMPTY-*/
+static const TextureOBJ EmptyTexOBJ;
+static const Texture EmptyTex;
+/*-EMPTY-*/
+
+/*----GLOBALS----*/
+#pragma endregion GLOBALS
 
 /* If two textures equal */
 bool TextureEquals(Texture t1, Texture t2){
@@ -70,73 +115,22 @@ bool TextureEquals(Texture t1, Texture t2){
     return true;
 }
 
-/* If two textureobjs equal*/
-bool TextureOBJEquals(TextureOBJ t1,TextureOBJ t2){
-    if (!TextureEquals(t1.texture,t2.texture))
-        {return false;}
-
-    if (!TextureEquals(t1.texture_hit,t2.texture_hit))
-        {return false;}
-
-    if (t1.pos.x != t2.pos.x)
-        {return false;}
-    if (t1.pos.y != t2.pos.y)
-        {return false;}
-    if (t1.end_ptr != t2.end_ptr)
-        {return false;}
-    if (t1.rotation != t2.rotation)
-        {return false;}
-    if (t1.id != t2.id)
-        {return false;}
-    if (t1.index != t2.index)
-        {return false;}
-    return true;
+//from : https://stackoverflow.com/a/786007
+/* Tries to parse from a character to an intiger */ 
+bool TryParseChar(int * i, char c){
+    if ('0' <= c &&  c <= '9') {
+        *i = (int)c - 48;
+        return true;
+    } else {
+        if (c != '\0'){
+            printf("ERR: INVALID CHAR BEING PARSED\n");
+        }
+        return false;
+    }
 }
 
-#pragma region GLOBALS
-/*----GLOBALS----*/
-
-
-/*-INTS-*/
-static int button_index = 0;
-static int current_frame = 0;
-static int updfunc_len = 0;
-static int largest_frame = 0;
-static int ticks = 0;
-static int holding_texture = -1;
-static int selected_texture = -1;
-static int textures_len = 0;
-static int framesExport = 0;
-/*-INTS-*/
-
-/*-TEXTURES-*/
-Texture tex_in_hand;
-Texture missing_tex;
-Texture gaster_blaster_tex;
-Texture empty_tex;
-/*-TEXTURES-*/
-
-/*-OTHER-*/
-static float mwheel;
-static bool holding = false;
-static Button buttons[99];
-void (*updfunc[99])();
-static TextureOBJ textures[1000];
-static Frame * frames;
-/*-OTHER-*/
-
-
-/*-EMPTY-*/
-static const TextureOBJ EmptyTexOBJ;
-static const Texture EmptyTex;
-/*-EMPTY-*/
-
-/*----GLOBALS----*/
-#pragma endregion GLOBALS
-
-
 /* Creates a button */
-void CreateButton(Rectangle box,Color color,Texture tex_override,void (* callback)(),char * tag,char * texture_tag,char * img_path){
+void CreateButton(Rectangle box,Color color,Texture tex_override,void (* callback)(),char * tag,char * texture_tag,char * img_path, bool * override_vis){
     buttons[button_index].box = box;
     buttons[button_index].color = color;
     buttons[button_index].callback = callback;
@@ -145,6 +139,9 @@ void CreateButton(Rectangle box,Color color,Texture tex_override,void (* callbac
     buttons[button_index].tag = tag;
     buttons[button_index].texture_tag = texture_tag;
     buttons[button_index].texture = (img_path != NULL) ? LoadTexture(img_path) : (!TextureEquals(tex_override, EmptyTex)) ? tex_override : missing_tex;
+    buttons[button_index].updfunc_firstfram = false;
+    buttons[button_index].has_added_updfunc = false;
+    buttons[button_index].override_visibility = override_vis;
 
     button_index++;
 }
@@ -180,59 +177,37 @@ void ChangeFrame(int i,char * context_tag){
 /* Change a property of the last selected bullet */
 void ChangeProperty(int i,char * context_tag){
     if ((buttons[i].pressed == false || (buttons[i].frames_held >= 20 && buttons[i].frames_held % 2 )) && selected_texture != -1){
-        if (textures[selected_texture].end_ptr == NULL){
-            if(context_tag == "x_orig_add"){
-                textures[selected_texture].start_ptr->pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "x_orig_sub"){
-                textures[selected_texture].start_ptr->pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "x_end_add"){
-                textures[selected_texture].pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "x_end_sub"){
-                textures[selected_texture].pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_orig_add"){
-                textures[selected_texture].start_ptr->pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_orig_sub"){
-                textures[selected_texture].start_ptr->pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_end_add"){
-                textures[selected_texture].pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_end_sub"){
-                textures[selected_texture].pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_orig_add"){
-                textures[selected_texture].start_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_orig_sub"){
-                textures[selected_texture].start_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_end_add"){
-                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_end_sub"){
-                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }
-        }else{
-            if(context_tag == "x_orig_add"){
-                textures[selected_texture].pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "x_orig_sub"){
-                textures[selected_texture].pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "x_end_add"){
-                textures[selected_texture].end_ptr->pos.x+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "x_end_sub"){
-                textures[selected_texture].end_ptr->pos.x-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_orig_add"){
-                textures[selected_texture].pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_orig_sub"){
-                textures[selected_texture].pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_end_add"){
-                textures[selected_texture].end_ptr->pos.y-=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "y_end_sub"){
-                textures[selected_texture].end_ptr->pos.y+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_orig_add"){
-                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_orig_sub"){
-                textures[selected_texture].rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_end_add"){
-                textures[selected_texture].end_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }else if(context_tag == "rot_end_sub"){
-                textures[selected_texture].end_ptr->rotation+=(int)Clamp(buttons[i].frames_held % 20,1,2);
-            }
+        int multiplier;
+        float * edit_val;
+        char substr[10];
+        memcpy(substr,&context_tag[strlen(context_tag)-3],3);
+        TextureOBJ * start = GET_START(&textures[selected_texture]);
+        TextureOBJ * end   = GET_END(&textures[selected_texture]);
+        TextureOBJ * real;
+        if (memcmp(substr,"add",3*sizeof(char)) == 0){
+            multiplier = 1;
         }
+        if (memcmp(substr,"sub",3*sizeof(char)) == 0){
+            multiplier = -1;
+        }
+        memcpy(substr,&context_tag[2],1);
+        if (memcmp(substr,"o",1) == 0){
+            real = start;
+        }
+        if (memcmp(substr,"e",1) == 0){
+            real = end;
+        }
+        memcpy(substr,&context_tag[0],1);
+        if (memcmp(substr,"x",1) == 0){
+            edit_val = &real->pos.x;
+        }
+        if (memcmp(substr,"y",1) == 0){
+            edit_val = &real->pos.y;
+        }
+        if (memcmp(substr,"r",1) == 0){
+            edit_val = &real->rotation;
+        }
+        *edit_val+=((int)Clamp(buttons[i].frames_held % 20,1,2)*multiplier);
     }
     buttons[i].frames_held++;
 }
@@ -240,20 +215,22 @@ void ChangeProperty(int i,char * context_tag){
 
 /* Adds function [ func ] to the [ updfunc ] function array */
 void AddFunctionToItterator(void* func){
-    if (holding == false){
-        updfunc[updfunc_len++] = func;
-        holding = true;
-    }
+    updfunc[updfunc_len++] = func;
+        printf("%i\n",updfunc_len);
 }
+
 /* Button function for gasterblasters */
 void HoldGasterBlaster();
 
 /* Sprite rotation using the mousewheel */
 void RotateSpriteMouse(int i){
     if (mwheel != 0){
-        if(!IsKeyDown(KEY_LEFT_CONTROL)){mwheel*=10;}
-        if(IsKeyDown(KEY_LEFT_ALT)){mwheel=90;}
-        textures[i].rotation-=mwheel;
+        //mwheel = mwheel/abs(mwheel);
+        int multiplier = 1; /* Market piler */
+        int additioner = 0;
+        if(!IsKeyDown(KEY_LEFT_CONTROL)){multiplier=10;}
+        if(IsKeyDown(KEY_LEFT_ALT)){multiplier=0;additioner=90;}
+        textures[i].rotation-=mwheel*multiplier+additioner;
         if(textures[i].rotation>=360.0f){
             textures[i].rotation-=360;
         }
@@ -267,42 +244,48 @@ void RotateSpriteMouse(int i){
 }
 
 /* Gaster blaster holding logic */
-void GasterBlasterHold(){
+void GasterBlasterHold(int i){
+
     if(!IsMouseButtonDown(1)){
         RotateSpriteMouse(holding_texture);
     }else{
-        updfunc[updfunc_len] = NULL;
+        updfunc[i] = NULL;
         holding = false;
         if(textures[holding_texture].end_ptr != NULL){
+            printf("ERM %i %i",(textures[holding_texture].end_ptr)->index,holding_texture);
             *(textures[holding_texture].end_ptr) = EmptyTexOBJ;
         }else if(textures[holding_texture].start_ptr != NULL){
             *(textures[holding_texture].start_ptr) = EmptyTexOBJ;
         }
-        textures[holding_texture] = EmptyTexOBJ;
         holding_texture = -1;
         selected_texture = -1;
     }
-    if(IsMouseButtonPressed(0) || IsKeyPressed(KEY_SPACE)){
+    if((IsMouseButtonPressed(0) || IsKeyPressed(KEY_SPACE))){
+        printf("what %i",holding_texture);
         float saverot = textures[holding_texture].rotation;
         textures[holding_texture].pickup_cooldown = 1;
-        updfunc[updfunc_len] = NULL;
+        updfunc[i] = NULL;
         holding = false;
         selected_texture = holding_texture;
-        if (IsKeyDown(KEY_LEFT_SHIFT) && textures[holding_texture].end_ptr != NULL){
+        glob_pickup_cd = 1;
+        if (IsKeyDown(KEY_LEFT_SHIFT) && canShift){
             HoldGasterBlaster();
             textures[holding_texture].rotation = saverot;
-        }else{
+            canShift = false;
+        }else if (canShift){
             holding_texture = -1;
         }
         FrameChangedCallback(0);
+    }else{
+        canShift = true;
     }
 }
 
 /* Adds a gaster blaster to [ updfunc ] and initializes it */
 void HoldGasterBlaster(){
-    if (!holding){
+    if (!holding && glob_pickup_cd == 0){
         Texture blaster = gaster_blaster_tex;
-        Texture frame = LoadTexture("assets/gaster_blaster_hit.png");
+        Texture frame = gaster_blaster_box_tex;
         textures[textures_len+1] = (TextureOBJ){.texture = blaster,
                                                 .texture_hit = frame,
                                                 .end_ptr = NULL,
@@ -326,22 +309,48 @@ void HoldGasterBlaster(){
         holding_texture = textures_len;
         selected_texture = textures_len;
         textures_len+=2;
+        holding = true;
+        AddFunctionToItterator(&GasterBlasterHold);
     }
-    AddFunctionToItterator(&GasterBlasterHold);
 }
 
 /* [ updfunc ] function that is used to write into input fields */
 void TypeInputField(int i){
-    if (buttons[i].tag == "numinp"){
-        //printf("%i",GetCharPressed());
+    if (!buttons[last_button].updfunc_firstfram){
+        
+    }
+    if (buttons[last_button].tag == "numinp"){
+        int val;
+        char c = GetCharPressed();
+        if (TryParseChar(&val,c) || (c == '-' && num_f_i_len == 0)){
+            strcpy(&num_field_inp[num_f_i_len++],&c);
+            printf("%s\n",num_field_inp);
+            *buttons[last_button].callback_values[0] = strtol(num_field_inp,NULL,10)+160;
+        }
+        if(IsKeyPressed(KEY_BACKSPACE)){
+            strcpy(&num_field_inp[--num_f_i_len],"\0");
+            printf("%s\n",num_field_inp);
+            *buttons[last_button].callback_values[0] = strtol(num_field_inp,NULL,10)+160;
+        }
+        DrawText(num_field_inp,50,50,15,DARKGRAY);
     }else{
 
+    }
+
+    if(IsMouseButtonPressed(0) || IsMouseButtonPressed(1)){
+        strcpy(num_field_inp,"\0");
+        num_f_i_len = 0;
+        updfunc[i] = NULL;
+        buttons[last_button].has_added_updfunc = false;
     }
 }
 
 /* adds [ TypeInputField ] to [ updfunc ]*/
-void AddTypeInpField(){
-    AddFunctionToItterator(&TypeInputField);
+void AddTypeInpField(int i){
+    if (!buttons[i].pressed && !buttons[i].has_added_updfunc){
+        AddFunctionToItterator(&TypeInputField);
+        buttons[i].has_added_updfunc = true;
+    }
 }
 
 /* Exports the current workspace into a catak.lua parsable file */
@@ -356,7 +365,7 @@ void Export(void){
             TextureOBJ txj = locframe.textures[j];
             if(txj.end_ptr == NULL) {continue;}
             /*-           fr id x- y- ex ey r- er-*/
-            fprintf(fptr,"%i %s %i %i %i %i %i %i\n",i,txj.id,(int)txj.pos.x-160,(int)txj.pos.y,(int)txj.end_ptr->pos.x-160,(int)txj.end_ptr->pos.y,(int)txj.rotation,(int)txj.end_ptr->rotation);
+            fprintf(fptr,"%i %s %i %i %i %i %i %i\n",i,txj.id,(int)txj.pos.x-160,(int)txj.pos.y*-1+480,(int)txj.end_ptr->pos.x-160,(int)txj.end_ptr->pos.y*-1+480,-(int)txj.rotation,-(int)txj.end_ptr->rotation);
         }
     }
 
@@ -395,11 +404,12 @@ int main(void)
     Image *icons = malloc(sizeof(Image)*2);
     icons[0] = icon;
     icons[1] = icon_s;
-    
+    num_f_i_len = 0;
     InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.2 ]");
     /*TEXTURES*/
     
     gaster_blaster_tex = LoadTexture("assets/gaster_blaster.png");
+    gaster_blaster_box_tex = LoadTexture("assets/gaster_blaster_hit.png");
     empty_tex = LoadTexture("assets/empty.png");
 
     Texture arrow_tex = LoadTexture("assets/arrow_ui.png");
@@ -410,41 +420,44 @@ int main(void)
     SetWindowIcons(icons,2);
     SetTargetFPS(60);           
     /*--WALL-OF-BUTTONS--*/
-    CreateButton((Rectangle){5,30,25,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"inc1","","assets/plus_tex.png");
-    CreateButton((Rectangle){5,60,65,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"inc20","","assets/plus_20_tex.png");
-    CreateButton((Rectangle){130,30,25,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"sub1","","assets/sub_tex.png");
-    CreateButton((Rectangle){90,60,65,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"sub20","","assets/sub_20_tex.png");
+    CreateButton((Rectangle){5,30,25,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"inc1","","assets/plus_tex.png",NULL);
+    CreateButton((Rectangle){5,60,65,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"inc20","","assets/plus_20_tex.png",NULL);
+    CreateButton((Rectangle){130,30,25,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"sub1","","assets/sub_tex.png",NULL);
+    CreateButton((Rectangle){90,60,65,25},(Color){220,220,220,255},EmptyTex,&ChangeFrame,"sub20","","assets/sub_20_tex.png",NULL);
 
-    CreateButton((Rectangle){15,100,72,72},GRAY,EmptyTex,&HoldGasterBlaster,"holdgb","","assets/gb_ui.png");
+    CreateButton((Rectangle){15,100,72,72},GRAY,EmptyTex,&HoldGasterBlaster,"holdgb","","assets/gb_ui.png",NULL);
 
-    CreateButton((Rectangle){10,360,140,50},(Color){220,220,220,255},EmptyTex,&UnimplementedButtonFunctionality,"load","","assets/load.png");
-    CreateButton((Rectangle){10,420,140,50},(Color){220,220,220,255},EmptyTex,&Export,"export","","assets/save.png");
+    CreateButton((Rectangle){10,360,140,50},(Color){220,220,220,255},EmptyTex,&UnimplementedButtonFunctionality,"load","","assets/load.png",NULL);
+    CreateButton((Rectangle){10,420,140,50},(Color){220,220,220,255},EmptyTex,&Export,"export","","assets/save.png",NULL);
 
     /*FIELDS*/
-    CreateButton((Rectangle){100,360,140,50},(Color){220,220,220,255},empty_tex,&AddTypeInpField,"numinp","",NULL);
+    CreateButton((Rectangle){807,37,46,16},(Color){50,50,50,25},empty_tex,&AddTypeInpField,"numinp","curr_selec_x",NULL,&is_selected);
     /*FIELDS*/
 
-    CreateButton((Rectangle){855,20,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_orig_add","property_arrowup",NULL);
-    CreateButton((Rectangle){855,38,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_orig_sub","property_arrowdown",NULL);
-    CreateButton((Rectangle){930,20,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_orig_add","property_arrowup",NULL);
-    CreateButton((Rectangle){930,38,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_orig_sub","property_arrowdown",NULL);
-    CreateButton((Rectangle){855,100,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"rot_orig_add","property_arrowup",NULL);
-    CreateButton((Rectangle){855,118,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"rot_orig_sub","property_arrowdown",NULL);
+    CreateButton((Rectangle){855,20,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_orig_add","property_arrowup",NULL,NULL);
+    CreateButton((Rectangle){855,38,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_orig_sub","property_arrowdown",NULL,NULL);
+    CreateButton((Rectangle){930,20,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_orig_sub","property_arrowup",NULL,NULL);
+    CreateButton((Rectangle){930,38,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_orig_add","property_arrowdown",NULL,NULL);
+    CreateButton((Rectangle){855,100,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"r_orig_add","property_arrowup",NULL,NULL);
+    CreateButton((Rectangle){855,118,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"r_orig_sub","property_arrowdown",NULL,NULL);
 
-    CreateButton((Rectangle){855,60,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_end_add","property_arrowup",NULL);
-    CreateButton((Rectangle){855,78,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_end_sub","property_arrowdown",NULL);
-    CreateButton((Rectangle){930,60,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_end_add","property_arrowup",NULL);
-    CreateButton((Rectangle){930,78,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_end_sub","property_arrowdown",NULL);
-    CreateButton((Rectangle){930,100,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"rot_end_add","property_arrowup",NULL);
-    CreateButton((Rectangle){930,118,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"rot_end_sub","property_arrowdown",NULL);
+    CreateButton((Rectangle){855,60,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_end_add","property_arrowup",NULL,NULL);
+    CreateButton((Rectangle){855,78,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"x_end_sub","property_arrowdown",NULL,NULL);
+    CreateButton((Rectangle){930,60,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_end_sub","property_arrowup",NULL,NULL);
+    CreateButton((Rectangle){930,78,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_end_add","property_arrowdown",NULL,NULL);
+    CreateButton((Rectangle){930,100,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"r_end_add","property_arrowup",NULL,NULL);
+    CreateButton((Rectangle){930,118,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"r_end_sub","property_arrowdown",NULL,NULL);
     /*--WALL-OF-BUTTONS--*/
     while (!WindowShouldClose())
-    {  
+    {
         mwheel = GetMouseWheelMove();
         Vector2 mouse_pos = GetMousePosition();
         for (i=0;i<updfunc_len;i++){
-            (updfunc[i])();
+            if (updfunc[i] != NULL){
+                (updfunc[i])(i);
+            } 
         }
+        is_selected = false;
         BeginDrawing();
             ClearBackground((Color){220,220,220,220});
 
@@ -467,7 +480,7 @@ int main(void)
                     tx = textures[i];
                 }
                 if (CheckCollisionRecs((Rectangle){mouse_pos.x,mouse_pos.y,1,1},t_rect_coll)){
-                    if(IsMouseButtonPressed(0) && holding_texture == -1 && tx.pickup_cooldown <= 0){
+                    if(IsMouseButtonPressed(0) && holding_texture == -1 && tx.pickup_cooldown <= 0 && glob_pickup_cd == 0){
                         holding_texture = i;
                         selected_texture = i;
                         AddFunctionToItterator(&GasterBlasterHold);
@@ -477,7 +490,6 @@ int main(void)
                         if (tx.end_ptr != NULL){
                             *(textures[i].end_ptr) = EmptyTexOBJ;
                         }else {
-                            printf("%f %i\n",textures[i].start_ptr->pos.y,textures[i].start_ptr->index);
                             *(textures[i].start_ptr) = EmptyTexOBJ;
                         }
                         textures[i] = EmptyTexOBJ;
@@ -489,12 +501,14 @@ int main(void)
                     }
                     if (tx.pickup_cooldown > 0) { tx.pickup_cooldown--;}
                 }
-                if (!TextureOBJEquals(tx,EmptyTexOBJ)){
+                if (!TEXTURE_OBJ_EQUALS(tx,EmptyTexOBJ)){
                     if (tx.end_ptr != NULL){
                         other_ptr = tx.end_ptr;
                         line_p1 = tx.pos;
                         line_p2 = tx.end_ptr->pos;
+                        tx.real_ptr = tx.end_ptr;
                     }else{
+                        tx.real_ptr = tx.start_ptr;
                         line_p2 = tx.pos;
                         line_p1 = tx.start_ptr->pos;
                         other_ptr = tx.start_ptr;
@@ -532,9 +546,10 @@ int main(void)
             /*----UI----*/
             DrawRectangle(0,0,160,screenHeight,RAYWHITE);
             DrawRectangle(800,0,160,screenHeight,RAYWHITE);
-            DrawRectangle(5,90,150,200,LIGHTGRAY);
+            //DrawRectangle(5,90,150,200,LIGHTGRAY);
             
             if(selected_texture != -1){
+                is_selected = true;
                 DrawText("GASTER BLASTER",810,2,15,GRAY);
                 DrawLineEx((Vector2){880,15},(Vector2){880,470},1,GRAY);
                 TextureOBJ orig;
@@ -559,10 +574,10 @@ int main(void)
                 DrawText("Y",884,16,12,GRAY);
                 DrawText("ROT",810,96,12,GRAY);
 
-                DrawRectangle(808,35,42,18,DARKGRAY);
-                DrawRectangle(809,36,40,16,WHITE);
-                DrawText(TextFormat("\n%i",(int)orig.pos.x-160),810,20,20,GRAY);
-                DrawText(TextFormat("\n%i",(int)orig.pos.y),884,20,20,GRAY);
+                DrawRectangle(806,36,48,18,DARKGRAY); //inp field
+                DrawRectangle(807,37,46,16,WHITE);    //inp field
+                DrawText(TextFormat("\n%i",(int)orig.pos.x-160),808,21,20,GRAY);
+                DrawText(TextFormat("\n%i",(int)orig.pos.y*-1+480),884,20,20,GRAY);
                 DrawText(TextFormat("\n%i",(int)orig.rotation),810,100,20,GRAY);
                 
                 DrawText("END",810,66,12,GRAY);
@@ -572,7 +587,7 @@ int main(void)
                 DrawText("Y",884,56,12,GRAY);
                 DrawText("ROT",884,96,12,GRAY);
                 DrawText(TextFormat("\n%i",(int)end.pos.x-160),810,60,20,GRAY);
-                DrawText(TextFormat("\n%i",(int)end.pos.y),884,60,20,GRAY);
+                DrawText(TextFormat("\n%i",(int)end.pos.y*-1+480),884,60,20,GRAY);
                 DrawText(TextFormat("\n%i",(int)end.rotation),884,100,20,GRAY);
                 
             }
@@ -583,43 +598,64 @@ int main(void)
             #pragma region BUTTON LOGIC
             /*----BUTTON-LOGIC----*/
             for(i=0;i<button_index;i++){
-                Color color = buttons[i].color;
-                Color tint = WHITE;
-                bool active = true;
-                if((buttons[i].texture_tag == "property_arrowdown" || buttons[i].texture_tag == "property_arrowup") && selected_texture == -1){
-                    color.a = 0;
-                    tint.a = 0;
-                    active = false;
-                    buttons[i].frames_held = 0;
-                }
-                if(((buttons[i].box.x < mouse_pos.x && (buttons[i].box.x + buttons[i].box.width) > mouse_pos.x) && (buttons[i].box.y < mouse_pos.y && (buttons[i].box.y+ buttons[i].box.height) > mouse_pos.y)) && active == true){
-                    color.r -= 25;
-                    color.g -= 25;
-                    color.b -= 25;
-                    tint.r -= 10;
-                    tint.g -= 10;
-                    tint.b -= 10;
-                    if (IsMouseButtonDown(0)){
-                    
-                        (buttons[i].callback)(i,buttons[i].tag);
-                        buttons[i].pressed = true;
+                if(buttons[i].override_visibility == NULL || *buttons[i].override_visibility == true){
+                    Color color = buttons[i].color;
+                    Color tint = WHITE;
+                    bool active = true;
+                    if((buttons[i].texture_tag == "property_arrowdown" || buttons[i].texture_tag == "property_arrowup") && selected_texture == -1){
+                        color.a = 0;
+                        tint.a = 0;
+                        active = false;
+                        buttons[i].frames_held = 0;
+                    }
+                    if((buttons[i].texture_tag == "numinp" || buttons[i].texture_tag == "curr_selec_x") && selected_texture != -1){
+                        buttons[i].callback_values[0] = &textures[selected_texture].pos.x;
+                    }else if((buttons[i].texture_tag == "numinp" || buttons[i].texture_tag == "curr_selec_y") && selected_texture != -1){
+                        buttons[i].callback_values[0] = &textures[selected_texture].pos.y;
+                    }else if((buttons[i].texture_tag == "numinp" || buttons[i].texture_tag == "curr_selec_rot") && selected_texture != -1){
+                        buttons[i].callback_values[0] = &textures[selected_texture].rotation;
+                    }else if((buttons[i].texture_tag == "numinp" || buttons[i].texture_tag == "end_selec_x") && selected_texture != -1){
+                        buttons[i].callback_values[0] = &textures[selected_texture].real_ptr->pos.x;
+                    }else if((buttons[i].texture_tag == "numinp" || buttons[i].texture_tag == "end_selec_y") && selected_texture != -1){
+                        buttons[i].callback_values[0] = &textures[selected_texture].real_ptr->pos.y;
+                    }else if((buttons[i].texture_tag == "numinp" || buttons[i].texture_tag == "end_selec_rot") && selected_texture != -1){
+                        buttons[i].callback_values[0] = &textures[selected_texture].real_ptr->rotation;
+                    }
+                    if(((buttons[i].box.x < mouse_pos.x && (buttons[i].box.x + buttons[i].box.width) > mouse_pos.x) && (buttons[i].box.y < mouse_pos.y && (buttons[i].box.y+ buttons[i].box.height) > mouse_pos.y)) && active == true){
+                        color.r -= 25;
+                        color.g -= 25;
+                        color.b -= 25;
+                        tint.r -= 10;
+                        tint.g -= 10;
+                        tint.b -= 10;
+                        if (IsMouseButtonDown(0)){
+                            color.r += 15;
+                            color.g += 15;
+                            color.b += 15;
+                            tint.r += 10;
+                            tint.g += 10;
+                            tint.b += 10;
+                            last_button = i;
+                            (buttons[i].callback)(i,buttons[i].tag);
+                            buttons[i].pressed = true;
+                        }else{
+                            buttons[i].pressed = false;
+                            buttons[i].frames_held = 0;
+                        }
                     }else{
                         buttons[i].pressed = false;
                         buttons[i].frames_held = 0;
-                    }
-                }else{
-                    buttons[i].pressed = false;
-                    buttons[i].frames_held = 0;
 
+                    }
+                    float rot = 0;
+                    Vector2 origin = {0,0};
+                    if(buttons[i].texture_tag == "property_arrowdown") {rot = 180; origin = (Vector2){buttons[i].box.width,buttons[i].box.height};}
+                    Rectangle src = buttons[i].box;
+                    src.x = 0;
+                    src.y = 0;
+                    DrawRectangleRec(buttons[i].box,color);
+                    DrawTexturePro(buttons[i].texture,src,buttons[i].box,origin,rot,tint);
                 }
-                float rot = 0;
-                Vector2 origin = {0,0};
-                if(buttons[i].texture_tag == "property_arrowdown") {rot = 180; origin = (Vector2){buttons[i].box.width,buttons[i].box.height};}
-                Rectangle src = buttons[i].box;
-                src.x = 0;
-                src.y = 0;
-                DrawRectangleRec(buttons[i].box,color);
-                DrawTexturePro(buttons[i].texture,src,buttons[i].box,origin,rot,tint);
             }
             /*----BUTTON-LOGIC----*/
             #pragma endregion BUTTON LOGIC
@@ -636,7 +672,7 @@ int main(void)
                 int temp_textures_len = 0;
                 int total_shifted = 0;
                 for(i=0;i<textures_len;i++){
-                    if (!TextureOBJEquals(textures[i],EmptyTexOBJ)){
+                    if (!TEXTURE_OBJ_EQUALS(textures[i],EmptyTexOBJ)){
                         temp_textures[temp_textures_len] = textures[i];
                         temp_textures[temp_textures_len].index = temp_textures_len;
                         temp_textures_len++;
@@ -644,7 +680,6 @@ int main(void)
                         total_shifted++;
                     }
                 }
-                printf("%i \n",temp_textures_len);
                 memcpy(&textures,&temp_textures,sizeof(textures)); 
                 textures_len = temp_textures_len;
                 for(i=0;i<textures_len;i++){
@@ -667,11 +702,15 @@ int main(void)
                     }
                 }
                 updfunc_len = temp_updfunc_len;
+                printf("%i\n",temp_updfunc_len);
             }
         EndDrawing();
         framesExport--;
         framesExport = (int)Clamp(framesExport,0,80);
         ticks++;
+        if (glob_pickup_cd > 0){
+            glob_pickup_cd--;
+        }
     }
     free(frames);
     CloseWindow();
