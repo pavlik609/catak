@@ -63,11 +63,13 @@ static int selected_texture = -1;
 static int textures_len = 0;
 static int framesExport = 0;
 static int last_button = -1;
+static int glob_tex_len = 0;
 
 int num_f_i_len;
 /*-INTS-*/
 
 /*-BOOLS-*/
+static bool has_changes = false;
 static bool holding = false;
 static bool canShift = true;
 static bool is_selected = false;
@@ -87,13 +89,14 @@ char num_field_inp[10];
 static Button buttons[99];
 void (*updfunc[99])();
 static TextureOBJ textures[1000];
-static Frame * frames;
+static Frame* frames;
 /*-OTHER-*/
 
 
 /*-EMPTY-*/
 static const TextureOBJ EmptyTexOBJ;
 static const Texture EmptyTex;
+static const Frame EmptyFrame;
 /*-EMPTY-*/
 
 /*----GLOBALS----*/
@@ -148,6 +151,8 @@ void CreateButton(Rectangle box,Color color,Texture tex_override,void (* callbac
 
 /* Called in every function chaning the frame number */
 void FrameChangedCallback(int nextframe){
+    selected_texture = -1;
+    holding_texture = -1;
     int real_nextframe = (int)Clamp(current_frame+nextframe,0,65534);
     memcpy(frames[current_frame].textures,textures,sizeof(frames[current_frame].textures)); 
     frames[current_frame].textures_len = textures_len;
@@ -216,7 +221,7 @@ void ChangeProperty(int i,char * context_tag){
 /* Adds function [ func ] to the [ updfunc ] function array */
 void AddFunctionToItterator(void* func){
     updfunc[updfunc_len++] = func;
-        printf("%i\n",updfunc_len);
+        //printf("%i\n",updfunc_len);
 }
 
 /* Button function for gasterblasters */
@@ -252,16 +257,20 @@ void GasterBlasterHold(int i){
         updfunc[i] = NULL;
         holding = false;
         if(textures[holding_texture].end_ptr != NULL){
-            printf("ERM %i %i",(textures[holding_texture].end_ptr)->index,holding_texture);
-            *(textures[holding_texture].end_ptr) = EmptyTexOBJ;
+            printf("ERM %i %i\n",(textures[holding_texture].end_ptr)->index,holding_texture);
+            textures[textures[holding_texture].end_ptr->index] = EmptyTexOBJ;
+            //*(textures[holding_texture].end_ptr) = EmptyTexOBJ;
         }else if(textures[holding_texture].start_ptr != NULL){
-            *(textures[holding_texture].start_ptr) = EmptyTexOBJ;
+            textures[textures[holding_texture].start_ptr->index] = EmptyTexOBJ;
+            //*(textures[holding_texture].start_ptr) = EmptyTexOBJ;
         }
+        textures[holding_texture] = EmptyTexOBJ;
         holding_texture = -1;
         selected_texture = -1;
+        glob_tex_len-=1;
     }
     if((IsMouseButtonPressed(0) || IsKeyPressed(KEY_SPACE))){
-        printf("what %i",holding_texture);
+        printf("what %i\n",holding_texture);
         float saverot = textures[holding_texture].rotation;
         textures[holding_texture].pickup_cooldown = 1;
         updfunc[i] = NULL;
@@ -309,6 +318,7 @@ void HoldGasterBlaster(){
         holding_texture = textures_len;
         selected_texture = textures_len;
         textures_len+=2;
+        glob_tex_len+=1;
         holding = true;
         AddFunctionToItterator(&GasterBlasterHold);
     }
@@ -347,6 +357,7 @@ void TypeInputField(int i){
 
 /* adds [ TypeInputField ] to [ updfunc ]*/
 void AddTypeInpField(int i){
+    has_changes = true;
     if (!buttons[i].pressed && !buttons[i].has_added_updfunc){
         AddFunctionToItterator(&TypeInputField);
         buttons[i].has_added_updfunc = true;
@@ -356,16 +367,17 @@ void AddTypeInpField(int i){
 /* Exports the current workspace into a catak.lua parsable file */
 void Export(void){
     FILE *fptr;
-
+    has_changes = false;
     fptr = fopen("export.txt","w+");
 
+    fprintf(fptr,"%i",glob_tex_len);
     for(int i=0;i<largest_frame+1;i++){
         Frame locframe = frames[i];
         for(int j=0;j<locframe.textures_len;j++){
             TextureOBJ txj = locframe.textures[j];
             if(txj.end_ptr == NULL) {continue;}
             /*-           fr id x- y- ex ey r- er-*/
-            fprintf(fptr,"%i %s %i %i %i %i %i %i\n",i,txj.id,(int)txj.pos.x-160,(int)txj.pos.y*-1+480,(int)txj.end_ptr->pos.x-160,(int)txj.end_ptr->pos.y*-1+480,-(int)txj.rotation,-(int)txj.end_ptr->rotation);
+            fprintf(fptr,"\n%i %s %i %i %i %i %i %i",i,txj.id,(int)txj.pos.x,(int)txj.pos.y,(int)txj.end_ptr->pos.x,(int)txj.end_ptr->pos.y,(int)txj.rotation,(int)txj.end_ptr->rotation);
         }
     }
 
@@ -373,6 +385,7 @@ void Export(void){
 
     framesExport = 80;
 }
+
 /* Prints a warning */
 void UnimplementedButtonFunctionality(int i){
     printf("UNIMPLEMENTED BUTTON FUNCTIONALITY '%s'\n", buttons[i].tag);
@@ -394,18 +407,18 @@ bool ColorsEqual(Color c1, Color c2){
 /* Entrypoint */
 int main(void)
 {
-    frames = malloc(60000*sizeof(Frame));
+    frames = malloc(sizeof(Frame)*65536);
     memset(frames,0,sizeof(frames));
     int i,j,k,l,m; //itterators
     const int screenWidth = 960;
     const int screenHeight = 480;
-    Image icon = LoadImage("assets/icon_alt.png");
+    Image icon = LoadImage("assets/icon_task.png");
     Image icon_s = LoadImage("assets/icon_small.png");
     Image *icons = malloc(sizeof(Image)*2);
     icons[0] = icon;
     icons[1] = icon_s;
     num_f_i_len = 0;
-    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.2 ]");
+    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.3 ]");
     /*TEXTURES*/
     
     gaster_blaster_tex = LoadTexture("assets/gaster_blaster.png");
@@ -427,7 +440,7 @@ int main(void)
 
     CreateButton((Rectangle){15,100,72,72},GRAY,EmptyTex,&HoldGasterBlaster,"holdgb","","assets/gb_ui.png",NULL);
 
-    CreateButton((Rectangle){10,360,140,50},(Color){220,220,220,255},EmptyTex,&UnimplementedButtonFunctionality,"load","","assets/load.png",NULL);
+    //CreateButton((Rectangle){10,360,140,50},(Color){220,220,220,255},EmptyTex,&UnimplementedButtonFunctionality,"load","","assets/load.png",NULL);
     CreateButton((Rectangle){10,420,140,50},(Color){220,220,220,255},EmptyTex,&Export,"export","","assets/save.png",NULL);
 
     /*FIELDS*/
@@ -458,6 +471,77 @@ int main(void)
             } 
         }
         is_selected = false;
+        #pragma region FILE LOADING
+        /*--FILE-LOADING--*/
+        if (IsFileDropped())
+        {
+            if (has_changes){
+                printf("IMPLEMENT: UNSAVED OVERRIDE WARNING\n");
+            }
+            FilePathList droppedFiles = LoadDroppedFiles();
+            const char* filePath = droppedFiles.paths[0];
+            //memset(frames,0,sizeof(frames));
+            memset(&textures,0,sizeof(textures));
+            textures_len = 0;
+            //textures = 
+            FILE * fptr = fopen(filePath,"r");
+            char spriteTag[20];
+            for (int i=0;i<largest_frame+1;i++){
+                memset(&frames[i],0,sizeof(Frame));
+            }
+            fscanf(fptr,"%i",&glob_tex_len);
+            for(int i=0;i<glob_tex_len;i++){
+                TextureOBJ currtxtr;
+                TextureOBJ endtxtr;
+                int frameIdx;
+                fscanf(fptr,"%d %s %f %f %f %f %f %f",&frameIdx,&spriteTag,&currtxtr.pos.x,&currtxtr.pos.y,&endtxtr.pos.x,&endtxtr.pos.y,&currtxtr.rotation,&endtxtr.rotation);
+                currtxtr.id = spriteTag;
+                endtxtr.id = spriteTag;
+                currtxtr.tint = WHITE;
+                endtxtr.tint = GREEN;
+                if (strcmp(spriteTag,"gb") == 0){
+                    currtxtr.texture = gaster_blaster_tex;
+                    currtxtr.texture_hit = gaster_blaster_box_tex;
+                    endtxtr.texture = gaster_blaster_tex;
+                    endtxtr.texture_hit = gaster_blaster_box_tex;
+                }
+                //locframe.textures[0] = currtxtr;
+                currtxtr.start_ptr = NULL;
+                endtxtr.end_ptr = NULL;
+                
+                currtxtr.index = frames[frameIdx].textures_len;
+                endtxtr.index = frames[frameIdx].textures_len+1;
+                
+                currtxtr.end_ptr = &(frames[frameIdx].textures[frames[frameIdx].textures_len+1]);
+                endtxtr.start_ptr = &frames[frameIdx].textures[frames[frameIdx].textures_len];
+                frames[frameIdx].textures[frames[frameIdx].textures_len++] = currtxtr;
+                frames[frameIdx].textures[frames[frameIdx].textures_len++] = endtxtr;
+                //currtxtr.end_ptr = &frames[frameIdx].textures[frames[frameIdx].textures_len++];
+                //endtxtr.start_ptr = &frames[frameIdx].textures[frames[frameIdx].textures_len++];
+                Frame locframe;
+                if (frameIdx == current_frame){
+                    currtxtr.index = textures_len;
+                    endtxtr.index = textures_len+1;
+                    currtxtr.end_ptr = &textures[textures_len+1];
+                    endtxtr.start_ptr = &textures[textures_len];
+                    textures[textures_len++] = currtxtr;
+                    textures[textures_len++] = endtxtr;
+                    //currtxtr.end_ptr = &textures[0];
+                    //endtxtr.start_ptr = &textures[1];
+                    //memcpy(textures,frames[frameIdx].textures,sizeof(textures));
+                }
+                //locframe.textures[0] = endtxtr;
+                //frames[0] = locframe;
+                printf("BE SURE THAT EVERY TEXRTURE INTERACTION INCREASES glob_tex_len!\n");
+                //memcpy(&frames,&locframe,sizeof(Frame));
+                //printf("frmidx %i\n",frames[0].textures_len);
+            }
+            fclose(fptr);
+            UnloadDroppedFiles(droppedFiles);    // Unload filepaths from memory
+        }
+        /*--FILE-LOADING--*/
+        #pragma endregion FILE LOADING
+        
         BeginDrawing();
             ClearBackground((Color){220,220,220,220});
 
@@ -487,10 +571,13 @@ int main(void)
                     }
                     if(IsMouseButtonDown(1)){
                         selected_texture = -1;
+                        glob_tex_len-=1;
                         if (tx.end_ptr != NULL){
-                            *(textures[i].end_ptr) = EmptyTexOBJ;
+                            textures[tx.end_ptr->index] = EmptyTexOBJ;
+                            //*(textures[i].end_ptr) = EmptyTexOBJ; old way
                         }else {
-                            *(textures[i].start_ptr) = EmptyTexOBJ;
+                            textures[tx.start_ptr->index] = EmptyTexOBJ;
+                            //*(textures[i].start_ptr) = EmptyTexOBJ;
                         }
                         textures[i] = EmptyTexOBJ;
                         tx = textures[i];
@@ -636,6 +723,7 @@ int main(void)
                             tint.g += 10;
                             tint.b += 10;
                             last_button = i;
+                            has_changes = true;
                             (buttons[i].callback)(i,buttons[i].tag);
                             buttons[i].pressed = true;
                         }else{
@@ -702,7 +790,6 @@ int main(void)
                     }
                 }
                 updfunc_len = temp_updfunc_len;
-                printf("%i\n",temp_updfunc_len);
             }
         EndDrawing();
         framesExport--;
