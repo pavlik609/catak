@@ -18,7 +18,7 @@ function parse_attack(filename)
             attacks[tonumber(split[1])][i][1] = attack_lib[split[2]]
             attacks[tonumber(split[1])][i][2] = {["startX"]=tonumber(split[3]),["startY"]=tonumber(split[4]),
                                               ["endX"]  =tonumber(split[5]),["endY"]  =tonumber(split[6]),
-                                            ["rotation"]=tonumber(split[7]),["rotationEnd"]=tonumber(split[8])}
+                                            ["rotation"]=tonumber(split[7]),["rotationEnd"]=tonumber(split[9])}
         end
     end
     SetGlobal("catak_attacks",attacks)

@@ -7,6 +7,7 @@
 #include <raylib/raymath.h>
 #include <raylib/reasings.h>
 #include "includes/TextureOBJ.h"
+#include "includes/Easings.h"
 /*----INCLUDES----*/
 #pragma endregion INCLUDES
 
@@ -42,9 +43,8 @@ typedef struct Frame {
     TextureOBJ textures[1000];
     int textures_len;
 }Frame;
-
-
 /*----STRUCTS----*/
+
 #pragma endregion STRUCTS
 
 #pragma region GLOBALS
@@ -73,6 +73,7 @@ static bool has_changes = false;
 static bool holding = false;
 static bool canShift = true;
 static bool is_selected = false;
+static bool is_selected_gb = false;
 /*-BOOLS-*/
 
 /*-TEXTURES-*/
@@ -118,15 +119,14 @@ bool TextureEquals(Texture t1, Texture t2){
     return true;
 }
 
-//from : https://stackoverflow.com/a/786007
-/* Tries to parse from a character to an intiger */ 
+/* from : https://stackoverflow.com/a/786007 Tries to parse from a character to an intiger */ 
 bool TryParseChar(int * i, char c){
     if ('0' <= c &&  c <= '9') {
         *i = (int)c - 48;
         return true;
     } else {
         if (c != '\0'){
-            printf("ERR: INVALID CHAR BEING PARSED\n");
+            //printf("ERR: INVALID CHAR BEING PARSED\n");
         }
         return false;
     }
@@ -183,6 +183,7 @@ void ChangeFrame(int i,char * context_tag){
 void ChangeProperty(int i,char * context_tag){
     if ((buttons[i].pressed == false || (buttons[i].frames_held >= 20 && buttons[i].frames_held % 2 )) && selected_texture != -1){
         int multiplier;
+        int cap = INT_MAX;
         float * edit_val;
         char substr[10];
         memcpy(substr,&context_tag[strlen(context_tag)-3],3);
@@ -212,7 +213,21 @@ void ChangeProperty(int i,char * context_tag){
         if (memcmp(substr,"r",1) == 0){
             edit_val = &real->rotation;
         }
-        *edit_val+=((int)Clamp(buttons[i].frames_held % 20,1,2)*multiplier);
+        int temp_idx;
+        if (TryParseChar(&temp_idx,substr[0])){
+            if (temp_idx == 1){
+                cap = 29;
+            }
+            int val = *(int*)(start->additional_data+temp_idx*8);
+            val+=((int)Clamp(buttons[i].frames_held % 20,1,2)*multiplier);
+            val = (int)Clamp(val,0,cap);
+            void * data = (char*)(start->additional_data+temp_idx*8);
+            memcpy(data,&val,4);
+        }else{
+            *edit_val+=((int)Clamp(buttons[i].frames_held % 20,1,2)*multiplier);
+        }
+        memcpy(frames[current_frame].textures,textures,sizeof(frames[current_frame].textures)); 
+        frames[current_frame].textures_len = textures_len;
     }
     buttons[i].frames_held++;
 }
@@ -257,7 +272,6 @@ void GasterBlasterHold(int i){
         updfunc[i] = NULL;
         holding = false;
         if(textures[holding_texture].end_ptr != NULL){
-            printf("ERM %i %i\n",(textures[holding_texture].end_ptr)->index,holding_texture);
             textures[textures[holding_texture].end_ptr->index] = EmptyTexOBJ;
             //*(textures[holding_texture].end_ptr) = EmptyTexOBJ;
         }else if(textures[holding_texture].start_ptr != NULL){
@@ -270,7 +284,6 @@ void GasterBlasterHold(int i){
         glob_tex_len-=1;
     }
     if((IsMouseButtonPressed(0) || IsKeyPressed(KEY_SPACE))){
-        printf("what %i\n",holding_texture);
         float saverot = textures[holding_texture].rotation;
         textures[holding_texture].pickup_cooldown = 1;
         updfunc[i] = NULL;
@@ -315,6 +328,8 @@ void HoldGasterBlaster(){
                                               .tint = WHITE,
                                               .pickup_cooldown = 0,
                                               .index = textures_len};
+        int val_to_write = 12;
+        memcpy((char*)textures[textures_len].additional_data,&val_to_write,4);
         holding_texture = textures_len;
         selected_texture = textures_len;
         textures_len+=2;
@@ -365,25 +380,28 @@ void AddTypeInpField(int i){
 }
 
 /* Exports the current workspace into a catak.lua parsable file */
-void Export(void){
-    FILE *fptr;
-    has_changes = false;
-    fptr = fopen("export.txt","w+");
+void Export(int i,int override_pressed){
+    if (buttons[i].pressed == false || override_pressed == true){
+        FILE *fptr;
+        has_changes = false;
+        fptr = fopen("export.txt","w+");
 
-    fprintf(fptr,"%i",glob_tex_len);
-    for(int i=0;i<largest_frame+1;i++){
-        Frame locframe = frames[i];
-        for(int j=0;j<locframe.textures_len;j++){
-            TextureOBJ txj = locframe.textures[j];
-            if(txj.end_ptr == NULL) {continue;}
-            /*-           fr id x- y- ex ey r- er-*/
-            fprintf(fptr,"\n%i %s %i %i %i %i %i %i",i,txj.id,(int)txj.pos.x,(int)txj.pos.y,(int)txj.end_ptr->pos.x,(int)txj.end_ptr->pos.y,(int)txj.rotation,(int)txj.end_ptr->rotation);
+        fprintf(fptr,"%i",glob_tex_len);
+        for(int i=0;i<largest_frame+1;i++){
+            Frame locframe = frames[i];
+            for(int j=0;j<locframe.textures_len;j++){
+                TextureOBJ txj = locframe.textures[j];
+                if(txj.end_ptr == NULL) {continue;}
+                /*-           fr id x- y- ex ey r- er-*/
+                fprintf(fptr,"\n%i %s %i %i %i %i %i %i %i %i",i,txj.id,(int)txj.pos.x,(int)txj.pos.y,(int)txj.end_ptr->pos.x,(int)txj.end_ptr->pos.y,(int)txj.rotation,(int)txj.end_ptr->rotation,*(int*)(txj.additional_data),*(int*)(txj.additional_data+1*8));
+                fprintf(fptr," %s",EasingTypes[*(int*)(txj.additional_data+1*8)]);
+            }
         }
+
+        fclose(fptr);
+
+        framesExport = 80;
     }
-
-    fclose(fptr);
-
-    framesExport = 80;
 }
 
 /* Prints a warning */
@@ -404,6 +422,13 @@ bool ColorsEqual(Color c1, Color c2){
     return true;
 }
 
+char * expand_tag(char*tag){
+    if(strcmp(tag,"gb") == 0){
+        return "GASTER BLASTER";
+    }
+    return strcat(strcat("INVALID TAG '",tag),"'");
+}
+
 /* Entrypoint */
 int main(void)
 {
@@ -418,7 +443,7 @@ int main(void)
     icons[0] = icon;
     icons[1] = icon_s;
     num_f_i_len = 0;
-    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.3 ]");
+    InitWindow(screenWidth, screenHeight, "Catak - Create Your Frisk attack helper [ ALPHA 0.3.1 ]");
     /*TEXTURES*/
     
     gaster_blaster_tex = LoadTexture("assets/gaster_blaster.png");
@@ -460,9 +485,39 @@ int main(void)
     CreateButton((Rectangle){930,78,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"y_end_add","property_arrowdown",NULL,NULL);
     CreateButton((Rectangle){930,100,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"r_end_add","property_arrowup",NULL,NULL);
     CreateButton((Rectangle){930,118,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"r_end_sub","property_arrowdown",NULL,NULL);
+
+    /* Slight docs */
+    /*
+     *  0 - [ Dependant on type ]
+     *  1 - EASING TYPE
+     *  2 - { UNIMPLEMENTED }
+     *  3 - { UNIMPLEMENTED }
+     *  4 - { UNIMPLEMENTED }
+     *  5 - { UNIMPLEMENTED }
+     *  6 - { UNIMPLEMENTED }
+     *  7 - { UNIMPLEMENTED }
+     *  8 - { UNIMPLEMENTED }
+     *  9 - { UNIMPLEMENTED }
+    */
+
+
+    /*GASTERBLASTER SPECIFIC*/
+        CreateButton((Rectangle){855,140,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"0_orig_add","property_arrowup",NULL,&is_selected_gb);
+        CreateButton((Rectangle){855,158,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"0_orig_sub","property_arrowdown",NULL,&is_selected_gb);
+        CreateButton((Rectangle){930,140,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"1_orig_add","property_arrowup",NULL,&is_selected_gb); //enum
+        CreateButton((Rectangle){930,158,20,15},(Color){220,220,220,255},arrow_tex,&ChangeProperty,"1_orig_sub","property_arrowdown",NULL,&is_selected_gb);
+    /*GASTERBLASTER SPECIFIC*/
     /*--WALL-OF-BUTTONS--*/
     while (!WindowShouldClose())
     {
+        if(IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_S)){
+            Export(0,true);
+        }
+        if(IsKeyPressed(KEY_PERIOD)){
+            printf("\x1b[38;2;255;128;0mWARNING\x1b[0m: WEIRD SHIT MIGHT HAPPEN BECAUSE YOU PRESSED THE EMERGENCY HOTKEY \x1b[38;2;0;255;128m'.>' \x1b[38;2;255;0;0mCONSIDER SAVING\x1b[0m\n");
+            holding = false;
+            holding_texture = -1;
+        }
         mwheel = GetMouseWheelMove();
         Vector2 mouse_pos = GetMousePosition();
         for (i=0;i<updfunc_len;i++){
@@ -486,6 +541,7 @@ int main(void)
             //textures = 
             FILE * fptr = fopen(filePath,"r");
             char spriteTag[20];
+            char garbage[50];
             for (int i=0;i<largest_frame+1;i++){
                 memset(&frames[i],0,sizeof(Frame));
             }
@@ -494,7 +550,8 @@ int main(void)
                 TextureOBJ currtxtr;
                 TextureOBJ endtxtr;
                 int frameIdx;
-                fscanf(fptr,"%d %s %f %f %f %f %f %f",&frameIdx,&spriteTag,&currtxtr.pos.x,&currtxtr.pos.y,&endtxtr.pos.x,&endtxtr.pos.y,&currtxtr.rotation,&endtxtr.rotation);
+                fscanf(fptr,"%d %s %f %f %f %f %f %f %i %i %s",&frameIdx,&spriteTag,&currtxtr.pos.x,&currtxtr.pos.y,&endtxtr.pos.x,&endtxtr.pos.y,&currtxtr.rotation,&endtxtr.rotation,&currtxtr.additional_data,&currtxtr.additional_data+1*8,&garbage);
+                printf("whdashdhasdhsad %s\n",garbage);
                 currtxtr.id = spriteTag;
                 endtxtr.id = spriteTag;
                 currtxtr.tint = WHITE;
@@ -520,6 +577,7 @@ int main(void)
                 //endtxtr.start_ptr = &frames[frameIdx].textures[frames[frameIdx].textures_len++];
                 Frame locframe;
                 if (frameIdx == current_frame){
+                    printf("erm waht te sigam %f\n",currtxtr.pos.x);
                     currtxtr.index = textures_len;
                     endtxtr.index = textures_len+1;
                     currtxtr.end_ptr = &textures[textures_len+1];
@@ -628,7 +686,13 @@ int main(void)
             /*----TEXTURE-LOGIC----*/
             #pragma endregion TEXTURE LOGIC
 
-            
+            if (selected_texture != -1){
+                if (strcmp(textures[selected_texture].id,"gb") == 0){
+                    is_selected_gb = true;
+                }else{
+                    is_selected_gb = false;
+                }
+            }
             #pragma region UI
             /*----UI----*/
             DrawRectangle(0,0,160,screenHeight,RAYWHITE);
@@ -637,7 +701,7 @@ int main(void)
             
             if(selected_texture != -1){
                 is_selected = true;
-                DrawText("GASTER BLASTER",810,2,15,GRAY);
+                DrawText(expand_tag(textures[selected_texture].id),810,2,15,GRAY);
                 DrawLineEx((Vector2){880,15},(Vector2){880,470},1,GRAY);
                 TextureOBJ orig;
                 TextureOBJ end;
@@ -648,18 +712,25 @@ int main(void)
                     orig = *textures[selected_texture].start_ptr;
                     end = textures[selected_texture];
                 }
+
+                int leftX = 810;
+                int rightX = 884;
+
                 /*LINES*/
                 DrawLineEx((Vector2){805,15},(Vector2){956,15},1,GRAY);
                 DrawLineEx((Vector2){805,55},(Vector2){956,55},1,GRAY);
                 DrawLineEx((Vector2){805,95},(Vector2){956,95},1,GRAY);
-                DrawLineEx((Vector2){805,135},(Vector2){956,135},1,GRAY);
+                DrawLineEx((Vector2){805,135},(Vector2){956,135},2,GRAY);
+                DrawLineEx((Vector2){805,175},(Vector2){956,175},1,GRAY);
+                DrawLineEx((Vector2){805,215},(Vector2){956,215},1,GRAY);
+                DrawLineEx((Vector2){805,255},(Vector2){956,255},1,GRAY);
                 /*LINES*/
-                DrawText("START",810,26,12,GRAY);
-                DrawText("START",884,26,12,GRAY);
-                DrawText("START",810,106,12,GRAY);
-                DrawText("X",810,16,12,GRAY);
-                DrawText("Y",884,16,12,GRAY);
-                DrawText("ROT",810,96,12,GRAY);
+                DrawText("START",leftX,26,12,GRAY);
+                DrawText("START",rightX,26,12,GRAY);
+                DrawText("START",leftX,106,12,GRAY);
+                DrawText("X",leftX,16,12,GRAY);
+                DrawText("Y",rightX,16,12,GRAY);
+                DrawText("ROT",leftX,96,12,GRAY);
 
                 DrawRectangle(806,36,48,18,DARKGRAY); //inp field
                 DrawRectangle(807,37,46,16,WHITE);    //inp field
@@ -667,15 +738,37 @@ int main(void)
                 DrawText(TextFormat("\n%i",(int)orig.pos.y*-1+480),884,20,20,GRAY);
                 DrawText(TextFormat("\n%i",(int)orig.rotation),810,100,20,GRAY);
                 
-                DrawText("END",810,66,12,GRAY);
-                DrawText("END",884,66,12,GRAY);
-                DrawText("END",884,106,12,GRAY);
+                DrawText("END",leftX,66,12,GRAY);
+                DrawText("END",rightX,66,12,GRAY);
+                DrawText("END",rightX,106,12,GRAY);
                 DrawText("X",810,56,12,GRAY);
-                DrawText("Y",884,56,12,GRAY);
-                DrawText("ROT",884,96,12,GRAY);
+                DrawText("Y",rightX,56,12,GRAY);
+                DrawText("ROT",rightX,96,12,GRAY);
+
                 DrawText(TextFormat("\n%i",(int)end.pos.x-160),810,60,20,GRAY);
                 DrawText(TextFormat("\n%i",(int)end.pos.y*-1+480),884,60,20,GRAY);
                 DrawText(TextFormat("\n%i",(int)end.rotation),884,100,20,GRAY);
+
+                char * current_ease_str = (char*)EasingTypes[(*(int*)(GET_START(&textures[selected_texture])->additional_data+8))];
+                int num_strs;
+                const char ** strs_res = TextSplit(current_ease_str,(char)'_',&num_strs);
+
+                //char * strs;// = strs_res[0];
+                //strcpy(strs,strs_res[0]);
+                //char * strs = ((char**)TextSplit(current_ease_str,(char)'\n',ptrtmp))[0];
+                DrawText("EASE",rightX,136,14,GRAY);
+                for(int i=0;i<num_strs;i++){
+                    DrawText(TextFormat("%s",strs_res[i]),rightX,136+10*(i+1),12,GRAY);
+                }
+                //DrawText(TextFormat("\n%s",strs_res[1]),rightX,133,18,GRAY);
+                //DrawText(TextFormat("\n%s",strs_res[2]),rightX,145,18,GRAY);
+
+
+                if(strcmp(textures[selected_texture].id,"gb") == 0){
+                    DrawText("CHARGE",leftX,136,12,GRAY);
+                    DrawText("TIME",leftX,146,12,GRAY);
+                    DrawText(TextFormat("\n%i",(*(int*)(GET_START(&textures[selected_texture])->additional_data))),leftX,140,20,GRAY);
+                }
                 
             }
             /*----UI----*/

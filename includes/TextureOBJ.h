@@ -18,6 +18,7 @@
         char * id;
         int index;
         float rotation;
+        void (*additional_data[10]);
     };
 
     /* Gets the start TextureOBJ */
