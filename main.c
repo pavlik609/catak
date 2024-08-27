@@ -8,13 +8,24 @@
 #include <raylib/reasings.h>
 #include "includes/TextureOBJ.h"
 #include "includes/Easings.h"
+#include "includes/GasterBlaster.h"
+#include "includes/Shared.h"
 /*----INCLUDES----*/
 #pragma endregion INCLUDES
 
+/*--EXTENRS--*/
 
+extern void HoldGasterBlaster();
+extern void GasterBlasterHold(int i);
+extern void FrameChangedCallback(int nextframe);
+extern void AddFunctionToItterator(void* func);
+extern void RotateSpriteMouse(int i);
 extern int TEXTURE_OBJ_EQUALS();
 extern TextureOBJ * GET_START();
 extern TextureOBJ * GET_END();
+
+/*--EXTENRS--*/
+
 #pragma region STRUCTS
 
 /*----STRUCTS----*/
@@ -37,12 +48,6 @@ typedef struct Button {
     float * callback_values[10];
     void (* callback)();
 } Button;
-typedef struct Frame {
-    char * attack;
-    void * args[5];
-    TextureOBJ textures[1000];
-    int textures_len;
-}Frame;
 /*----STRUCTS----*/
 
 #pragma endregion STRUCTS
@@ -52,26 +57,21 @@ typedef struct Frame {
 
 
 /*-INTS-*/
+
+/* Button array length */
 static int button_index = 0;
-static int current_frame = 0;
-static int updfunc_len = 0;
-static int largest_frame = 0;
+/* Ticks since the app started */
 static int ticks = 0;
-static int glob_pickup_cd = 0;
-static int holding_texture = -1;
-static int selected_texture = -1;
-static int textures_len = 0;
+/* Framecounter for the { Exported! } element */
 static int framesExport = 0;
+/* Index of the last button */
 static int last_button = -1;
-static int glob_tex_len = 0;
 
 int num_f_i_len;
 /*-INTS-*/
 
 /*-BOOLS-*/
 static bool has_changes = false;
-static bool holding = false;
-static bool canShift = true;
 static bool is_selected = false;
 static bool is_selected_gb = false;
 /*-BOOLS-*/
@@ -79,25 +79,18 @@ static bool is_selected_gb = false;
 /*-TEXTURES-*/
 Texture tex_in_hand;
 Texture missing_tex;
-Texture gaster_blaster_tex;
-Texture gaster_blaster_box_tex;
 Texture empty_tex;
 /*-TEXTURES-*/
 
 /*-OTHER-*/
-static float mwheel;
 char num_field_inp[10];
 static Button buttons[99];
-void (*updfunc[99])();
-static TextureOBJ textures[1000];
-static Frame* frames;
+
 /*-OTHER-*/
 
 
 /*-EMPTY-*/
-static const TextureOBJ EmptyTexOBJ;
 static const Texture EmptyTex;
-static const Frame EmptyFrame;
 /*-EMPTY-*/
 
 /*----GLOBALS----*/
@@ -105,18 +98,11 @@ static const Frame EmptyFrame;
 
 /* If two textures equal */
 bool TextureEquals(Texture t1, Texture t2){
-    if (t1.id != t2.id)
-        {return false;}
-    if (t1.width != t2.width)
-        {return false;}
-    if (t1.height != t2.height)
-        {return false;}
-    if (t1.mipmaps != t2.mipmaps)
-        {return false;}
-    if (t1.format != t2.format)
-        {return false;}
-
-    return true;
+    if(memcmp(&t1,&t2,sizeof(Texture)) == 0){
+        return true;
+    }else{
+        return false;
+    }
 }
 
 /* from : https://stackoverflow.com/a/786007 Tries to parse from a character to an intiger */ 
@@ -147,18 +133,6 @@ void CreateButton(Rectangle box,Color color,Texture tex_override,void (* callbac
     buttons[button_index].override_visibility = override_vis;
 
     button_index++;
-}
-
-/* Called in every function chaning the frame number */
-void FrameChangedCallback(int nextframe){
-    selected_texture = -1;
-    holding_texture = -1;
-    int real_nextframe = (int)Clamp(current_frame+nextframe,0,65534);
-    memcpy(frames[current_frame].textures,textures,sizeof(frames[current_frame].textures)); 
-    frames[current_frame].textures_len = textures_len;
-    memcpy(textures,frames[real_nextframe].textures,sizeof(frames[real_nextframe].textures));
-    textures_len = frames[real_nextframe].textures_len;
-    if (real_nextframe > largest_frame) {largest_frame = real_nextframe;}
 }
 
 /* Frame change ui */
@@ -232,113 +206,6 @@ void ChangeProperty(int i,char * context_tag){
     buttons[i].frames_held++;
 }
 
-
-/* Adds function [ func ] to the [ updfunc ] function array */
-void AddFunctionToItterator(void* func){
-    updfunc[updfunc_len++] = func;
-        //printf("%i\n",updfunc_len);
-}
-
-/* Button function for gasterblasters */
-void HoldGasterBlaster();
-
-/* Sprite rotation using the mousewheel */
-void RotateSpriteMouse(int i){
-    if (mwheel != 0){
-        //mwheel = mwheel/abs(mwheel);
-        int multiplier = 1; /* Market piler */
-        int additioner = 0;
-        if(!IsKeyDown(KEY_LEFT_CONTROL)){multiplier=10;}
-        if(IsKeyDown(KEY_LEFT_ALT)){multiplier=0;additioner=90;}
-        textures[i].rotation-=mwheel*multiplier+additioner;
-        if(textures[i].rotation>=360.0f){
-            textures[i].rotation-=360;
-        }
-        if(textures[i].rotation<=-360.0f){
-            textures[i].rotation+=360;
-        }
-        if(textures[i].rotation<0.0f){
-            textures[i].rotation+=360;
-        }
-    }
-}
-
-/* Gaster blaster holding logic */
-void GasterBlasterHold(int i){
-
-    if(!IsMouseButtonDown(1)){
-        RotateSpriteMouse(holding_texture);
-    }else{
-        updfunc[i] = NULL;
-        holding = false;
-        if(textures[holding_texture].end_ptr != NULL){
-            textures[textures[holding_texture].end_ptr->index] = EmptyTexOBJ;
-            //*(textures[holding_texture].end_ptr) = EmptyTexOBJ;
-        }else if(textures[holding_texture].start_ptr != NULL){
-            textures[textures[holding_texture].start_ptr->index] = EmptyTexOBJ;
-            //*(textures[holding_texture].start_ptr) = EmptyTexOBJ;
-        }
-        textures[holding_texture] = EmptyTexOBJ;
-        holding_texture = -1;
-        selected_texture = -1;
-        glob_tex_len-=1;
-    }
-    if((IsMouseButtonPressed(0) || IsKeyPressed(KEY_SPACE))){
-        float saverot = textures[holding_texture].rotation;
-        textures[holding_texture].pickup_cooldown = 1;
-        updfunc[i] = NULL;
-        holding = false;
-        selected_texture = holding_texture;
-        glob_pickup_cd = 1;
-        if (IsKeyDown(KEY_LEFT_SHIFT) && canShift){
-            HoldGasterBlaster();
-            textures[holding_texture].rotation = saverot;
-            canShift = false;
-        }else if (canShift){
-            holding_texture = -1;
-        }
-        FrameChangedCallback(0);
-    }else{
-        canShift = true;
-    }
-}
-
-/* Adds a gaster blaster to [ updfunc ] and initializes it */
-void HoldGasterBlaster(){
-    if (!holding && glob_pickup_cd == 0){
-        Texture blaster = gaster_blaster_tex;
-        Texture frame = gaster_blaster_box_tex;
-        textures[textures_len+1] = (TextureOBJ){.texture = blaster,
-                                                .texture_hit = frame,
-                                                .end_ptr = NULL,
-                                                .start_ptr = &textures[textures_len],
-                                                .pos = (Vector2){480,280},
-                                                .id = "gb",
-                                                .rotation = 90,
-                                                .tint = GREEN,
-                                                .pickup_cooldown = 0,
-                                                .index = textures_len+1};
-        textures[textures_len] = (TextureOBJ){.texture = blaster,
-                                              .texture_hit = frame,
-                                              .end_ptr = &textures[textures_len+1],
-                                              .start_ptr = NULL,
-                                              .pos = (Vector2){480,240},
-                                              .id = "gb",
-                                              .rotation = 0,
-                                              .tint = WHITE,
-                                              .pickup_cooldown = 0,
-                                              .index = textures_len};
-        int val_to_write = 12;
-        memcpy((char*)textures[textures_len].additional_data,&val_to_write,4);
-        holding_texture = textures_len;
-        selected_texture = textures_len;
-        textures_len+=2;
-        glob_tex_len+=1;
-        holding = true;
-        AddFunctionToItterator(&GasterBlasterHold);
-    }
-}
-
 /* [ updfunc ] function that is used to write into input fields */
 void TypeInputField(int i){
     if (!buttons[last_button].updfunc_firstfram){
@@ -370,7 +237,7 @@ void TypeInputField(int i){
     }
 }
 
-/* adds [ TypeInputField ] to [ updfunc ]*/
+/* Adds [ TypeInputField ] to [ updfunc ]*/
 void AddTypeInpField(int i){
     has_changes = true;
     if (!buttons[i].pressed && !buttons[i].has_added_updfunc){
@@ -490,8 +357,8 @@ int main(void)
     /*
      *  0 - [ Dependant on type ]
      *  1 - EASING TYPE
-     *  2 - { UNIMPLEMENTED }
-     *  3 - { UNIMPLEMENTED }
+     *  2 - X SCALE
+     *  3 - Y SCALE
      *  4 - { UNIMPLEMENTED }
      *  5 - { UNIMPLEMENTED }
      *  6 - { UNIMPLEMENTED }

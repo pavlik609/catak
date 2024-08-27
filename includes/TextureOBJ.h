@@ -21,6 +21,9 @@
         void (*additional_data[10]);
     };
 
+    /* Empty TextureOBJ */
+    const TextureOBJ EmptyTexOBJ;
+
     /* Gets the start TextureOBJ */
     inline TextureOBJ * GET_START(TextureOBJ * t){
         if ((*t).start_ptr == NULL){
