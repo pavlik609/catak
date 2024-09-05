@@ -5,6 +5,22 @@
 
 #ifndef __TEXOBJ_H__
 #define __TEXOBJ_H__
+
+    /* Additional data index, points to the index */
+    #define T_OBJ_INDEX 0
+
+    /* Additional data index, points to the easing type */
+    #define T_OBJ_EASE_TYPE 1
+
+    /* Additional data index, points to the indedx */
+    #define T_OBJ_XSCALE 2
+    
+    /* Additional data index, points to the indedx */
+    #define T_OBJ_YSCALE 3
+    
+    /* Maximum [ additional_data ] length */
+    #define T_M_ADD_DATA 15
+
     typedef struct TextureOBJ TextureOBJ;
     struct TextureOBJ{
         Texture texture;
@@ -16,13 +32,22 @@
         Vector2 pos;
         unsigned char pickup_cooldown;
         char * id;
-        int index;
         float rotation;
         void (*additional_data[10]);
     };
 
     /* Empty TextureOBJ */
     const TextureOBJ EmptyTexOBJ;
+
+    /* Gets the Nth element of [ additional_data ] */
+    inline void* GET_ADD_DATA(TextureOBJ * t,int index){
+        return t->additional_data+8*index;
+    }
+
+    /* Sets the Nth element if [ additional_data ] */
+    inline void SET_ADD_DATA(TextureOBJ * t,void* data,int index){
+        memcpy(((char*)(t->additional_data))+8*index,data,sizeof(data));
+    }
 
     /* Gets the start TextureOBJ */
     inline TextureOBJ * GET_START(TextureOBJ * t){
@@ -49,6 +74,11 @@
         }else{
             return false;
         }
+    }
+
+    /*  */
+    inline void SET_ADITIONAL_DATA(TextureOBJ* t,void* data,size_t size){
+        memcpy((char*)((t))->additional_data,data,size);
     }
     
 #endif
